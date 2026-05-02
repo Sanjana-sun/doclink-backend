@@ -1,0 +1,75 @@
+const express = require('express')
+const { PrismaClient } = require('@prisma/client')
+const auth = require('../middleware/auth')
+
+const router = express.Router()
+const prisma = new PrismaClient()
+
+router.get('/', async (req, res) => {
+  try {
+    const { tag, search } = req.query
+    const cases = await prisma.case.findMany({
+      where: {
+        ...(tag && { tag }),
+        ...(search && { title: { contains: search, mode: 'insensitive' } })
+      },
+      include: {
+        doctor: { select: { name: true, hospital: true, specialty: true } },
+        _count: { select: { responses: true } }
+      },
+      orderBy: { createdAt: 'desc' }
+    })
+    res.json(cases)
+  } catch {
+    res.status(500).json({ error: 'Server error' })
+  }
+})
+
+router.get('/:id', async (req, res) => {
+  try {
+    const caseData = await prisma.case.findUnique({
+      where: { id: req.params.id },
+      include: {
+        doctor: { select: { name: true, hospital: true, specialty: true } },
+        responses: {
+          include: { doctor: { select: { name: true, hospital: true, specialty: true, reputation: true } } },
+          orderBy: { helpful: 'desc' }
+        }
+      }
+    })
+    if (!caseData) return res.status(404).json({ error: 'Case not found' })
+    await prisma.case.update({ where: { id: req.params.id }, data: { views: { increment: 1 } } })
+    res.json(caseData)
+  } catch {
+    res.status(500).json({ error: 'Server error' })
+  }
+})
+
+router.post('/', auth, async (req, res) => {
+  try {
+    const { title, tag, urgency, age, sex, history, examination, investigations, question } = req.body
+    if (!title || !tag || !urgency || !age || !sex || !history || !question) {
+      return res.status(400).json({ error: 'Required fields missing' })
+    }
+    const newCase = await prisma.case.create({
+      data: { title, tag, urgency, age: parseInt(age), sex, history, examination, investigations, question, doctorId: req.doctorId }
+    })
+    res.status(201).json(newCase)
+  } catch {
+    res.status(500).json({ error: 'Server error' })
+  }
+})
+
+router.delete('/:id', auth, async (req, res) => {
+  try {
+    const caseData = await prisma.case.findUnique({ where: { id: req.params.id } })
+    if (!caseData) return res.status(404).json({ error: 'Case not found' })
+    if (caseData.doctorId !== req.doctorId) return res.status(403).json({ error: 'Unauthorized' })
+    await prisma.case.delete({ where: { id: req.params.id } })
+    res.json({ message: 'Case deleted' })
+  } catch {
+    res.status(500).json({ error: 'Server error' })
+  }
+})
+
+module.exports = router
