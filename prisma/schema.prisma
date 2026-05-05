@@ -70,3 +70,16 @@ model CMELog {
   caseId    String?
   case      Case?    @relation(fields: [caseId], references: [id])
 }
+
+model BlockchainLog {
+  id           String   @id @default(cuid())
+  blockNumber  Int      @unique @default(autoincrement())
+  action       String
+  entityType   String
+  entityId     String
+  doctorId     String
+  dataHash     String
+  previousHash String
+  blockHash    String
+  createdAt    DateTime @default(now())
+}

@@ -1,6 +1,7 @@
 const express = require('express')
 const { PrismaClient } = require('@prisma/client')
 const auth = require('../middleware/auth')
+const { createBlock } = require('../services/blockchain')
 
 const router = express.Router()
 const prisma = new PrismaClient()
@@ -77,6 +78,15 @@ router.post('/', auth, async (req, res) => {
   } catch {
     res.status(500).json({ error: 'Server error' })
   }
+})
+
+// Log to blockchain
+await createBlock({
+    action: 'CASE_POSTED',
+    entityType: 'Case',
+    entityId: newCase.id,
+    doctorId: req.doctorId,
+    data: { title, tag, urgency, age, sex, question }
 })
 
 router.delete('/:id', auth, async (req, res) => {
