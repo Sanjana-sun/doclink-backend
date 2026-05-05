@@ -6,6 +6,7 @@ const authRoutes = require('./routes/auth')
 const caseRoutes = require('./routes/cases')
 const responseRoutes = require('./routes/responses')
 const doctorRoutes = require('./routes/doctors')
+const cmeRoutes = require('./routes/cme')
 
 const app = express()
 
@@ -15,6 +16,7 @@ app.use(cors({
         'https://doclink-frontend-kappa.vercel.app',
         'https://doclink.in',
         'https://www.doclink.in'
+
     ],
     credentials: true
 }))
@@ -24,6 +26,7 @@ app.use('/api/auth', authRoutes)
 app.use('/api/cases', caseRoutes)
 app.use('/api/responses', responseRoutes)
 app.use('/api/doctors', doctorRoutes)
+app.use('/api/cme', cmeRoutes)
 
 app.get('/api/health', (req, res) => res.json({ status: 'DocLink API running' }))
 

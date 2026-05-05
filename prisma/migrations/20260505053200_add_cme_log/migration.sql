@@ -1,0 +1,17 @@
+-- CreateTable
+CREATE TABLE "CMELog" (
+    "id" TEXT NOT NULL,
+    "action" TEXT NOT NULL,
+    "points" DOUBLE PRECISION NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "doctorId" TEXT NOT NULL,
+    "caseId" TEXT,
+
+    CONSTRAINT "CMELog_pkey" PRIMARY KEY ("id")
+);
+
+-- AddForeignKey
+ALTER TABLE "CMELog" ADD CONSTRAINT "CMELog_doctorId_fkey" FOREIGN KEY ("doctorId") REFERENCES "Doctor"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "CMELog" ADD CONSTRAINT "CMELog_caseId_fkey" FOREIGN KEY ("caseId") REFERENCES "Case"("id") ON DELETE SET NULL ON UPDATE CASCADE;

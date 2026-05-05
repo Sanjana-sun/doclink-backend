@@ -51,10 +51,29 @@ router.post('/', auth, async (req, res) => {
     if (!title || !tag || !urgency || !age || !sex || !history || !question) {
       return res.status(400).json({ error: 'Required fields missing' })
     }
-    const newCase = await prisma.case.create({
-      data: { title, tag, urgency, age: parseInt(age), sex, history, examination, investigations, question, doctorId: req.doctorId }
-    })
-    res.status(201).json(newCase)
+      const newCase = await prisma.case.create({
+          data: { title, tag, urgency, age: parseInt(age), sex, history, examination, investigations, question, doctorId: req.doctorId }
+      })
+
+// Log CME credit for posting a case
+      await prisma.cMELog.create({
+          data: {
+              action: 'Posted a case',
+              points: 1.0,
+              doctorId: req.doctorId,
+              caseId: newCase.id
+          }
+      })
+
+      await prisma.doctor.update({
+          where: { id: req.doctorId },
+          data: {
+              cmeCredits: { increment: 1.0 },
+              reputation: { increment: 5 }
+          }
+      })
+
+      res.status(201).json(newCase)
   } catch {
     res.status(500).json({ error: 'Server error' })
   }

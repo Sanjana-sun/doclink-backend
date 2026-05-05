@@ -23,6 +23,7 @@ model Doctor {
 
   cases        Case[]
   responses    Response[]
+  cmeLog       CMELog[]
 }
 
 model Case {
@@ -43,6 +44,7 @@ model Case {
   doctorId       String
   doctor         Doctor   @relation(fields: [doctorId], references: [id])
   responses      Response[]
+  cmeLog         CMELog[]
 }
 
 model Response {
@@ -55,4 +57,16 @@ model Response {
   doctor    Doctor   @relation(fields: [doctorId], references: [id])
   caseId    String
   case      Case     @relation(fields: [caseId], references: [id])
+}
+
+model CMELog {
+  id        String   @id @default(cuid())
+  action    String
+  points    Float
+  createdAt DateTime @default(now())
+
+  doctorId  String
+  doctor    Doctor   @relation(fields: [doctorId], references: [id])
+  caseId    String?
+  case      Case?    @relation(fields: [caseId], references: [id])
 }
