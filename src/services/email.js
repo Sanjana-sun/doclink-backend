@@ -5,7 +5,7 @@ const resend = new Resend(process.env.RESEND_API_KEY)
 const sendWelcomeEmail = async ({ name, email }) => {
     try {
         await resend.emails.send({
-            from: 'DocLink <onboarding@resend.dev>',
+            from: 'DocLink <noreply@doclink.in>',
             to: email,
             subject: 'Welcome to DocLink — Verification in progress',
             html: `
