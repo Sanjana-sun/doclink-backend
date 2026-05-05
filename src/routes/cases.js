@@ -81,7 +81,7 @@ router.post('/', auth, async (req, res) => {
 })
 
 // Log to blockchain
-await createBlock({
+await createBlock(prisma, {
     action: 'CASE_POSTED',
     entityType: 'Case',
     entityId: newCase.id,
