@@ -10,8 +10,13 @@ const doctorRoutes = require('./routes/doctors')
 const app = express()
 
 app.use(cors({
-  origin: ['http://localhost:5174', 'https://doclink-frontend-kappa.vercel.app'],
-  credentials: true
+    origin: [
+        'http://localhost:5174',
+        'https://doclink-frontend-kappa.vercel.app',
+        'https://doclink.in',
+        'https://www.doclink.in'
+    ],
+    credentials: true
 }))
 app.use(express.json())
 
