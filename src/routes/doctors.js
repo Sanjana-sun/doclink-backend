@@ -12,6 +12,32 @@ const getPrisma = async () => {
     return prisma
 }
 
+// Search doctors
+router.get('/', auth, async (req, res) => {
+    try {
+        const db = await getPrisma()
+        const { search, specialty } = req.query
+        const doctors = await db.doctor.findMany({
+            where: {
+                ...(search && { name: { contains: search, mode: 'insensitive' } }),
+                ...(specialty && { specialty })
+            },
+            select: {
+                id: true, name: true, specialty: true, hospital: true,
+                reputation: true, cmeCredits: true,
+                _count: { select: { cases: true, responses: true, followers: true } }
+            },
+            orderBy: { reputation: 'desc' },
+            take: 20
+        })
+        res.json(doctors)
+    } catch (err) {
+        console.error(err)
+        res.status(500).json({ error: 'Server error' })
+    }
+})
+
+// Get my cases
 router.get('/me/cases', auth, async (req, res) => {
     try {
         const db = await getPrisma()
@@ -27,6 +53,7 @@ router.get('/me/cases', auth, async (req, res) => {
     }
 })
 
+// Update my profile
 router.put('/me', auth, async (req, res) => {
     try {
         const db = await getPrisma()
@@ -34,8 +61,38 @@ router.put('/me', auth, async (req, res) => {
         const doctor = await db.doctor.update({
             where: { id: req.doctorId },
             data: { name, hospital, specialty },
-            select: { id: true, name: true, email: true, specialty: true, hospital: true, reputation: true, cmeCredits: true }
+            select: {
+                id: true, name: true, email: true, specialty: true,
+                hospital: true, reputation: true, cmeCredits: true
+            }
         })
+        res.json(doctor)
+    } catch (err) {
+        console.error(err)
+        res.status(500).json({ error: 'Server error' })
+    }
+})
+
+// Get any doctor's public profile
+router.get('/:id', auth, async (req, res) => {
+    try {
+        const db = await getPrisma()
+        const doctor = await db.doctor.findUnique({
+            where: { id: req.params.id },
+            select: {
+                id: true, name: true, specialty: true, hospital: true,
+                reputation: true, cmeCredits: true, createdAt: true,
+                _count: {
+                    select: {
+                        cases: true,
+                        responses: true,
+                        followers: true,
+                        following: true
+                    }
+                }
+            }
+        })
+        if (!doctor) return res.status(404).json({ error: 'Doctor not found' })
         res.json(doctor)
     } catch (err) {
         console.error(err)

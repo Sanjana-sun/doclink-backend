@@ -20,6 +20,8 @@ model Doctor {
   verified     Boolean  @default(false)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+  followers    Follow[] @relation("Following")
+  following    Follow[] @relation("Follower")
 
   cases        Case[]
   responses    Response[]
@@ -69,6 +71,18 @@ model CMELog {
   doctor    Doctor   @relation(fields: [doctorId], references: [id])
   caseId    String?
   case      Case?    @relation(fields: [caseId], references: [id])
+}
+
+model Follow {
+  id          String   @id @default(cuid())
+  followerId  String
+  followingId String
+  createdAt   DateTime @default(now())
+
+  follower    Doctor   @relation("Follower", fields: [followerId], references: [id])
+  following   Doctor   @relation("Following", fields: [followingId], references: [id])
+
+  @@unique([followerId, followingId])
 }
 
 model BlockchainLog {

@@ -1,5 +1,6 @@
 const express = require('express')
 const cors = require('cors')
+const followRoutes = require('./routes/follow')
 require('dotenv').config()
 
 const authRoutes = require('./routes/auth')
@@ -29,6 +30,7 @@ app.use('/api/responses', responseRoutes)
 app.use('/api/doctors', doctorRoutes)
 app.use('/api/cme', cmeRoutes)
 app.use('/api/blockchain', blockchainRoutes)
+app.use('/api/follow', followRoutes)
 
 app.get('/api/health', (req, res) => res.json({ status: 'DocLink API running' }))
 
