@@ -60,6 +60,19 @@ router.get('/proof/:caseId', auth, async (req, res) => {
 
         if (!caseData) return res.status(404).json({ error: 'Case not found' })
 
+// Return proof even if no blockchain logs exist yet
+        if (logs.length === 0) {
+            return res.json({
+                case: caseData,
+                caseLogs: [],
+                responseLogs: [],
+                chainValid: false,
+                totalBlocks: 0,
+                noBlockchainData: true,
+                generatedAt: new Date().toISOString()
+            })
+        }
+
         // Also get response blockchain logs
         const responseLogs = await db.blockchainLog.findMany({
             where: {
