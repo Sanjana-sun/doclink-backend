@@ -51,7 +51,8 @@ router.post('/register', async (req, res) => {
                 email: doctor.email,
                 specialty: doctor.specialty,
                 hospital: doctor.hospital,
-                verified: doctor.verified
+                verified: doctor.verified,
+                isAdmin: doctor.isAdmin
             }
         })
     } catch (err) {
@@ -87,7 +88,8 @@ router.post('/login', async (req, res) => {
                 email: doctor.email,
                 specialty: doctor.specialty,
                 hospital: doctor.hospital,
-                verified: doctor.verified
+                verified: doctor.verified,
+                isAdmin: doctor.isAdmin
             }
         })
     } catch (err) {
