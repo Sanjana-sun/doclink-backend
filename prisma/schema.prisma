@@ -23,6 +23,7 @@ model Doctor {
   followers    Follow[] @relation("Following")
   following    Follow[] @relation("Follower")
   notifications Notification[]
+  isAdmin      Boolean  @default(false)
 
   cases        Case[]
   responses    Response[]
