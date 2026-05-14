@@ -9,6 +9,7 @@ const responseRoutes = require('./routes/responses')
 const doctorRoutes = require('./routes/doctors')
 const cmeRoutes = require('./routes/cme')
 const blockchainRoutes = require('./routes/blockchain')
+const knowledgeRoutes = require('./routes/knowledge')
 
 const app = express()
 
@@ -31,6 +32,7 @@ app.use('/api/doctors', doctorRoutes)
 app.use('/api/cme', cmeRoutes)
 app.use('/api/blockchain', blockchainRoutes)
 app.use('/api/follow', followRoutes)
+app.use('/api/knowledge', knowledgeRoutes)
 
 app.get('/api/health', (req, res) => res.json({ status: 'DocLink API running' }))
 
