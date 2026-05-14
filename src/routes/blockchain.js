@@ -76,8 +76,8 @@ router.get('/proof/:caseId', auth, async (req, res) => {
         // Also get response blockchain logs
         const responseLogs = await db.blockchainLog.findMany({
             where: {
-                caseId: req.params.caseId,
-                action: 'RESPONSE_POSTED'
+                action: 'RESPONSE_POSTED',
+                entityId: { in: caseData.responses.map(r => r.id) }
             },
             orderBy: { blockNumber: 'asc' }
         })
