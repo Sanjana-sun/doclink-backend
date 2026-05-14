@@ -2,8 +2,6 @@ const express = require('express')
 const auth = require('../middleware/auth')
 
 const router = express.Router()
-
-// Store connected clients
 const clients = new Map()
 
 let prisma
@@ -26,10 +24,8 @@ router.get('/connect', auth, (req, res) => {
     const doctorId = req.doctorId
     clients.set(doctorId, res)
 
-    // Send initial connection message
     res.write(`data: ${JSON.stringify({ type: 'connected', message: 'Connected to DocLink notifications' })}\n\n`)
 
-    // Heartbeat every 30 seconds
     const heartbeat = setInterval(() => {
         res.write(`data: ${JSON.stringify({ type: 'heartbeat' })}\n\n`)
     }, 30000)
@@ -40,7 +36,6 @@ router.get('/connect', auth, (req, res) => {
     })
 })
 
-// Send notification to a specific doctor
 const sendNotification = (doctorId, notification) => {
     const client = clients.get(doctorId)
     if (client) {
@@ -48,7 +43,7 @@ const sendNotification = (doctorId, notification) => {
     }
 }
 
-// Get notifications from DB
+// Get notifications
 router.get('/', auth, async (req, res) => {
     try {
         const db = await getPrisma()
@@ -64,7 +59,7 @@ router.get('/', auth, async (req, res) => {
     }
 })
 
-// Mark notification as read
+// Mark one as read
 router.put('/:id/read', auth, async (req, res) => {
     try {
         const db = await getPrisma()
