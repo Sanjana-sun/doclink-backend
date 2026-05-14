@@ -1,0 +1,97 @@
+const express = require('express')
+const auth = require('../middleware/auth')
+
+const router = express.Router()
+
+// Store connected clients
+const clients = new Map()
+
+let prisma
+const getPrisma = async () => {
+    if (!prisma) {
+        const { PrismaClient } = await import('@prisma/client')
+        prisma = new PrismaClient()
+    }
+    return prisma
+}
+
+// SSE connection endpoint
+router.get('/connect', auth, (req, res) => {
+    res.setHeader('Content-Type', 'text/event-stream')
+    res.setHeader('Cache-Control', 'no-cache')
+    res.setHeader('Connection', 'keep-alive')
+    res.setHeader('Access-Control-Allow-Origin', '*')
+    res.flushHeaders()
+
+    const doctorId = req.doctorId
+    clients.set(doctorId, res)
+
+    // Send initial connection message
+    res.write(`data: ${JSON.stringify({ type: 'connected', message: 'Connected to DocLink notifications' })}\n\n`)
+
+    // Heartbeat every 30 seconds
+    const heartbeat = setInterval(() => {
+        res.write(`data: ${JSON.stringify({ type: 'heartbeat' })}\n\n`)
+    }, 30000)
+
+    req.on('close', () => {
+        clients.delete(doctorId)
+        clearInterval(heartbeat)
+    })
+})
+
+// Send notification to a specific doctor
+const sendNotification = (doctorId, notification) => {
+    const client = clients.get(doctorId)
+    if (client) {
+        client.write(`data: ${JSON.stringify(notification)}\n\n`)
+    }
+}
+
+// Get notifications from DB
+router.get('/', auth, async (req, res) => {
+    try {
+        const db = await getPrisma()
+        const notifications = await db.notification.findMany({
+            where: { doctorId: req.doctorId },
+            orderBy: { createdAt: 'desc' },
+            take: 20
+        })
+        res.json(notifications)
+    } catch (err) {
+        console.error(err)
+        res.status(500).json({ error: 'Server error' })
+    }
+})
+
+// Mark notification as read
+router.put('/:id/read', auth, async (req, res) => {
+    try {
+        const db = await getPrisma()
+        await db.notification.update({
+            where: { id: req.params.id },
+            data: { read: true }
+        })
+        res.json({ success: true })
+    } catch (err) {
+        console.error(err)
+        res.status(500).json({ error: 'Server error' })
+    }
+})
+
+// Mark all as read
+router.put('/read-all', auth, async (req, res) => {
+    try {
+        const db = await getPrisma()
+        await db.notification.updateMany({
+            where: { doctorId: req.doctorId, read: false },
+            data: { read: true }
+        })
+        res.json({ success: true })
+    } catch (err) {
+        console.error(err)
+        res.status(500).json({ error: 'Server error' })
+    }
+})
+
+module.exports = { router, sendNotification }

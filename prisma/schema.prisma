@@ -22,6 +22,7 @@ model Doctor {
   updatedAt    DateTime @updatedAt
   followers    Follow[] @relation("Following")
   following    Follow[] @relation("Follower")
+  notifications Notification[]
 
   cases        Case[]
   responses    Response[]
@@ -83,6 +84,18 @@ model Follow {
   following   Doctor   @relation("Following", fields: [followingId], references: [id])
 
   @@unique([followerId, followingId])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  type      String
+  message   String
+  read      Boolean  @default(false)
+  caseId    String?
+  createdAt DateTime @default(now())
+
+  doctorId  String
+  doctor    Doctor   @relation(fields: [doctorId], references: [id])
 }
 
 model BlockchainLog {

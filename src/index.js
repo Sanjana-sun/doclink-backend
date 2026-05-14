@@ -1,6 +1,5 @@
 const express = require('express')
 const cors = require('cors')
-const followRoutes = require('./routes/follow')
 require('dotenv').config()
 
 const authRoutes = require('./routes/auth')
@@ -9,7 +8,9 @@ const responseRoutes = require('./routes/responses')
 const doctorRoutes = require('./routes/doctors')
 const cmeRoutes = require('./routes/cme')
 const blockchainRoutes = require('./routes/blockchain')
+const followRoutes = require('./routes/follow')
 const knowledgeRoutes = require('./routes/knowledge')
+const { router: notificationRoutes } = require('./routes/notifications')
 
 const app = express()
 
@@ -19,7 +20,6 @@ app.use(cors({
         'https://doclink-frontend-kappa.vercel.app',
         'https://doclink.in',
         'https://www.doclink.in'
-
     ],
     credentials: true
 }))
@@ -33,6 +33,7 @@ app.use('/api/cme', cmeRoutes)
 app.use('/api/blockchain', blockchainRoutes)
 app.use('/api/follow', followRoutes)
 app.use('/api/knowledge', knowledgeRoutes)
+app.use('/api/notifications', notificationRoutes)
 
 app.get('/api/health', (req, res) => res.json({ status: 'DocLink API running' }))
 

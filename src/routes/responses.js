@@ -1,6 +1,7 @@
 const express = require('express')
 const auth = require('../middleware/auth')
 const { createBlock } = require('../services/blockchain')
+const { sendNotification } = require('./notifications')
 
 const router = express.Router()
 
@@ -73,5 +74,28 @@ router.post('/:id/helpful', auth, async (req, res) => {
         res.status(500).json({ error: 'Server error' })
     }
 })
+
+// Notify case owner
+if (caseData.doctorId !== req.doctorId) {
+    const db2 = await getPrisma()
+    const responder = await db2.doctor.findUnique({
+        where: { id: req.doctorId },
+        select: { name: true }
+    })
+    const notification = await db2.notification.create({
+        data: {
+            type: 'response',
+            message: `${responder.name} responded to your case: "${caseData.title.slice(0, 50)}"`,
+            doctorId: caseData.doctorId,
+            caseId: req.params.caseId
+        }
+    })
+    sendNotification(caseData.doctorId, {
+        type: 'response',
+        message: notification.message,
+        caseId: req.params.caseId,
+        id: notification.id
+    })
+}
 
 module.exports = router
