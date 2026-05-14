@@ -38,4 +38,51 @@ router.get('/verify', auth, async (req, res) => {
   }
 })
 
+// Get blockchain proof for a specific case
+router.get('/proof/:caseId', auth, async (req, res) => {
+    try {
+        const db = await getPrisma()
+        const logs = await db.blockchainLog.findMany({
+            where: { entityId: req.params.caseId },
+            orderBy: { blockNumber: 'asc' }
+        })
+
+        const caseData = await db.case.findUnique({
+            where: { id: req.params.caseId },
+            include: {
+                doctor: { select: { name: true, hospital: true, specialty: true } },
+                responses: {
+                    include: { doctor: { select: { name: true, hospital: true } } },
+                    orderBy: { createdAt: 'asc' }
+                }
+            }
+        })
+
+        if (!caseData) return res.status(404).json({ error: 'Case not found' })
+
+        // Also get response blockchain logs
+        const responseLogs = await db.blockchainLog.findMany({
+            where: {
+                caseId: req.params.caseId,
+                action: 'RESPONSE_POSTED'
+            },
+            orderBy: { blockNumber: 'asc' }
+        })
+
+        const chainValid = await verifyChain(db)
+
+        res.json({
+            case: caseData,
+            caseLogs: logs,
+            responseLogs,
+            chainValid: chainValid.valid,
+            totalBlocks: chainValid.blocks,
+            generatedAt: new Date().toISOString()
+        })
+    } catch (err) {
+        console.error(err)
+        res.status(500).json({ error: 'Server error' })
+    }
+})
+
 module.exports = router
