@@ -12,6 +12,7 @@ const followRoutes = require('./routes/follow')
 const knowledgeRoutes = require('./routes/knowledge')
 const { router: notificationRoutes } = require('./routes/notifications')
 const adminRoutes = require('./routes/admin')
+const leaderboardRoutes = require('./routes/leaderboard')
 
 const app = express()
 
@@ -36,6 +37,7 @@ app.use('/api/follow', followRoutes)
 app.use('/api/knowledge', knowledgeRoutes)
 app.use('/api/notifications', notificationRoutes)
 app.use('/api/admin', adminRoutes)
+app.use('/api/leaderboard', leaderboardRoutes)
 
 app.get('/api/health', (req, res) => res.json({ status: 'DocLink API running' }))
 
