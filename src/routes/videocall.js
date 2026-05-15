@@ -1,6 +1,6 @@
 const express = require('express')
 const auth = require('../middleware/auth')
-const { v4: uuidv4 } = require('uuid')
+const { randomBytes } = require('crypto')
 
 const router = express.Router()
 
@@ -36,7 +36,7 @@ router.post('/create/:consultationId', auth, async (req, res) => {
         }
 
         // Create a new unique room
-        const roomName = `dl-${uuidv4().replace(/-/g, '').slice(0, 16)}`
+        const roomName = `dl-${randomBytes(8).toString('hex')}`
 
         await db.consultation.update({
             where: { id: req.params.consultationId },
