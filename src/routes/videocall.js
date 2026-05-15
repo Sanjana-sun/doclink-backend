@@ -1,7 +1,7 @@
 const express = require('express')
 const auth = require('../middleware/auth')
 const { randomBytes } = require('crypto')
-const { RtcTokenBuilder, RtcRole } = require('agora-token')
+const { generateToken } = require('../services/agoraToken')
 
 const router = express.Router()
 
@@ -17,17 +17,9 @@ const getPrisma = async () => {
     return prisma
 }
 
-const generateToken = (channelName, uid) => {
-    const expirationTime = Math.floor(Date.now() / 1000) + 3600 // 1 hour
-    return RtcTokenBuilder.buildTokenWithUid(
-        APP_ID,
-        APP_CERTIFICATE,
-        channelName,
-        uid,
-        RtcRole.PUBLISHER,
-        expirationTime,
-        expirationTime
-    )
+const generateAgoraToken = (channelName, uid) => {
+    const expirationTime = Math.floor(Date.now() / 1000) + 3600
+    return generateToken(APP_ID, APP_CERTIFICATE, channelName, uid, expirationTime)
 }
 
 // Create or get room + generate secure token
@@ -56,11 +48,8 @@ router.post('/create/:consultationId', auth, async (req, res) => {
             })
         }
 
-        // Generate unique UID for this doctor
         const uid = Math.floor(Math.random() * 100000)
-
-        // Generate secure token
-        const token = generateToken(roomName, uid)
+        const token = generateAgoraToken(roomName, uid)
 
         res.json({
             appId: APP_ID,
@@ -93,7 +82,7 @@ router.get('/:consultationId', auth, async (req, res) => {
         if (!consultation.roomName) return res.status(404).json({ error: 'No room created yet' })
 
         const uid = Math.floor(Math.random() * 100000)
-        const token = generateToken(consultation.roomName, uid)
+        const token = generateAgoraToken(consultation.roomName, uid)
 
         res.json({
             appId: APP_ID,
