@@ -24,6 +24,8 @@ model Doctor {
   following    Follow[] @relation("Follower")
   notifications Notification[]
   isAdmin      Boolean  @default(false)
+  consultationsAsDoctor     Consultation[] @relation("ConsultationDoctor")
+  consultationsAsSpecialist Consultation[] @relation("ConsultationSpecialist")
 
   cases        Case[]
   responses    Response[]
@@ -110,4 +112,20 @@ model BlockchainLog {
   previousHash String
   blockHash    String
   createdAt    DateTime @default(now())
+}
+
+model Consultation {
+  id           String   @id @default(cuid())
+  topic        String
+  status       String   @default("pending")
+  roomName     String?
+  scheduledAt  DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  doctorId     String
+  doctor       Doctor   @relation("ConsultationDoctor", fields: [doctorId], references: [id])
+  specialistId String
+  specialist   Doctor   @relation("ConsultationSpecialist", fields: [specialistId], references: [id])
+  notes        String?
 }
