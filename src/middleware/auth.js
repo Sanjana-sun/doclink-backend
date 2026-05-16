@@ -1,27 +1,128 @@
+const express = require('express')
+const bcrypt = require('bcryptjs')
 const jwt = require('jsonwebtoken')
+const { sendOTP, verifyOTP } = require('../middleware/otp')
 
-module.exports = (req, res, next) => {
-    const token = req.headers.authorization?.split(' ')[1] || req.query.token
-    if (!token) return res.status(401).json({ error: 'No token provided' })
-    try {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET)
-        req.doctorId = decoded.id
-        next()
-    } catch {
-        res.status(401).json({ error: 'Invalid token' })
+const router = express.Router()
+
+let prisma
+const getPrisma = async () => {
+    if (!prisma) {
+        const { PrismaClient } = await import('@prisma/client')
+        prisma = new PrismaClient()
     }
+    return prisma
 }
 
-module.exports.verifiedOnly = (req, res, next) => {
-    const token = req.headers.authorization?.split(' ')[1] || req.query.token
-    if (!token) return res.status(401).json({ error: 'No token provided' })
+// Register
+router.post('/register', async (req, res) => {
     try {
+        const db = await getPrisma()
+        const { name, email, password, license, hospital, specialty } = req.body
+        if (!name || !email || !password || !license || !hospital || !specialty) {
+            return res.status(400).json({ error: 'All fields required' })
+        }
+        const exists = await db.doctor.findUnique({ where: { email } })
+        if (exists) return res.status(400).json({ error: 'Email already registered' })
+
+        const hashed = await bcrypt.hash(password, 12)
+        const doctor = await db.doctor.create({
+            data: { name, email, password: hashed, license, hospital, specialty }
+        })
+
+        // Send welcome email
+        const { Resend } = require('resend')
+        const resend = new Resend(process.env.RESEND_API_KEY)
+        await resend.emails.send({
+            from: 'noreply@doclink.in',
+            to: email,
+            subject: 'Welcome to DocLink',
+            html: `<p>Hi Dr. ${name}, welcome to DocLink. Your account is pending verification.</p>`
+        })
+
+        res.status(201).json({ message: 'Account created. Pending verification.' })
+    } catch (err) {
+        console.error(err)
+        res.status(500).json({ error: 'Server error' })
+    }
+})
+
+// Step 1 — verify credentials, send OTP
+router.post('/login', async (req, res) => {
+    try {
+        const db = await getPrisma()
+        const { email, password } = req.body
+        if (!email || !password) return res.status(400).json({ error: 'Email and password required' })
+
+        const doctor = await db.doctor.findUnique({ where: { email } })
+        if (!doctor) return res.status(401).json({ error: 'Invalid credentials' })
+
+        const valid = await bcrypt.compare(password, doctor.password)
+        if (!valid) return res.status(401).json({ error: 'Invalid credentials' })
+
+        // Send OTP
+        await sendOTP(email, doctor.name)
+
+        res.json({ message: 'OTP sent to your email', requiresOTP: true, email })
+    } catch (err) {
+        console.error(err)
+        res.status(500).json({ error: 'Server error' })
+    }
+})
+
+// Step 2 — verify OTP, issue JWT
+router.post('/verify-otp', async (req, res) => {
+    try {
+        const db = await getPrisma()
+        const { email, otp } = req.body
+        if (!email || !otp) return res.status(400).json({ error: 'Email and OTP required' })
+
+        const result = verifyOTP(email, otp)
+        if (!result.valid) return res.status(401).json({ error: result.reason })
+
+        const doctor = await db.doctor.findUnique({ where: { email } })
+        if (!doctor) return res.status(404).json({ error: 'Doctor not found' })
+
+        const token = jwt.sign(
+            { doctorId: doctor.id, verified: doctor.verified, isAdmin: doctor.isAdmin },
+            process.env.JWT_SECRET,
+            { expiresIn: '7d' }
+        )
+
+        res.json({
+            token,
+            doctor: {
+                id: doctor.id,
+                name: doctor.name,
+                email: doctor.email,
+                specialty: doctor.specialty,
+                hospital: doctor.hospital,
+                verified: doctor.verified,
+                isAdmin: doctor.isAdmin,
+            }
+        })
+    } catch (err) {
+        console.error(err)
+        res.status(500).json({ error: 'Server error' })
+    }
+})
+
+// Get current doctor
+router.get('/me', async (req, res) => {
+    try {
+        const token = req.headers.authorization?.split(' ')[1]
+        if (!token) return res.status(401).json({ error: 'No token' })
         const decoded = jwt.verify(token, process.env.JWT_SECRET)
-        req.doctorId = decoded.id
-        req.verified = decoded.verified
-        if (!decoded.verified) return res.status(403).json({ error: 'Account pending verification' })
-        next()
-    } catch {
+        const db = await getPrisma()
+        const doctor = await db.doctor.findUnique({
+            where: { id: decoded.doctorId },
+            select: { id: true, name: true, email: true, specialty: true, hospital: true, verified: true, isAdmin: true, reputation: true, cmeCredits: true }
+        })
+        if (!doctor) return res.status(404).json({ error: 'Not found' })
+        res.json(doctor)
+    } catch (err) {
         res.status(401).json({ error: 'Invalid token' })
     }
-}
+})
+
+module.exports = router
