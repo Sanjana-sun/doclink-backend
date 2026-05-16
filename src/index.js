@@ -29,8 +29,17 @@ app.use(cors({
     ],
     credentials: true
 }))
+
+// Security middleware FIRST — before all routes
+app.use(helmet())
+app.use(xss())
+app.use(sanitizeInput)
+app.use(general)
+app.use('/api/auth', auth)
+
 app.use(express.json())
 
+// Routes
 app.use('/api/auth', authRoutes)
 app.use('/api/cases', caseRoutes)
 app.use('/api/responses', responseRoutes)
@@ -44,12 +53,6 @@ app.use('/api/admin', adminRoutes)
 app.use('/api/leaderboard', leaderboardRoutes)
 app.use('/api/videocall', videocallRoutes)
 app.use('/api/consultations', consultationRoutes)
-app.use(general)
-app.use('/api/auth', auth)
-app.use('/api', api)
-app.use(helmet())
-app.use(xss())
-app.use(sanitizeInput)
 
 app.get('/api/health', (req, res) => res.json({ status: 'DocLink API running' }))
 
