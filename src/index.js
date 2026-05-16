@@ -17,10 +17,10 @@ const videocallRoutes = require('./routes/videocall')
 const consultationRoutes = require('./routes/consultations')
 const { general, auth, api } = require('./middleware/rateLimiter')
 const { helmet, xss, sanitizeInput } = require('./middleware/sanitize')
+const { scheduleWeeklyEmails } = require('./jobs/weeklyEmail')
 
 const app = express()
 app.set('trust proxy', 1)
-
 
 app.use(cors({
     origin: [
@@ -32,7 +32,7 @@ app.use(cors({
     credentials: true
 }))
 
-// Security middleware FIRST — before all routes
+// Security middleware FIRST
 app.use(helmet())
 app.use(xss())
 app.use(sanitizeInput)
@@ -59,4 +59,5 @@ app.use('/api/consultations', consultationRoutes)
 app.get('/api/health', (req, res) => res.json({ status: 'DocLink API running' }))
 
 const PORT = process.env.PORT || 8000
+scheduleWeeklyEmails()
 app.listen(PORT, '0.0.0.0', () => console.log(`DocLink API running on port ${PORT}`))
