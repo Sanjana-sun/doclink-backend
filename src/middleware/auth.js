@@ -26,19 +26,22 @@ router.post('/register', async (req, res) => {
         if (exists) return res.status(400).json({ error: 'Email already registered' })
 
         const hashed = await bcrypt.hash(password, 12)
-        const doctor = await db.doctor.create({
+        await db.doctor.create({
             data: { name, email, password: hashed, license, hospital, specialty }
         })
 
-        // Send welcome email
         const { Resend } = require('resend')
         const resend = new Resend(process.env.RESEND_API_KEY)
-        await resend.emails.send({
-            from: 'noreply@doclink.in',
-            to: email,
-            subject: 'Welcome to DocLink',
-            html: `<p>Hi Dr. ${name}, welcome to DocLink. Your account is pending verification.</p>`
-        })
+        try {
+            await resend.emails.send({
+                from: 'noreply@doclink.in',
+                to: email,
+                subject: 'Welcome to DocLink',
+                html: `<p>Hi Dr. ${name}, welcome to DocLink. Your account is pending verification.</p>`
+            })
+        } catch (emailErr) {
+            console.error('Welcome email error:', emailErr)
+        }
 
         res.status(201).json({ message: 'Account created. Pending verification.' })
     } catch (err) {
@@ -60,8 +63,12 @@ router.post('/login', async (req, res) => {
         const valid = await bcrypt.compare(password, doctor.password)
         if (!valid) return res.status(401).json({ error: 'Invalid credentials' })
 
-        // Send OTP
-        await sendOTP(email, doctor.name)
+        try {
+            await sendOTP(email, doctor.name)
+        } catch (otpErr) {
+            console.error('OTP send error:', otpErr.message, otpErr)
+            return res.status(500).json({ error: 'Failed to send OTP: ' + otpErr.message })
+        }
 
         res.json({ message: 'OTP sent to your email', requiresOTP: true, email })
     } catch (err) {
