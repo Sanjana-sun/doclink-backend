@@ -19,6 +19,7 @@ const { general, auth, api } = require('./middleware/rateLimiter')
 const { helmet, xss, sanitizeInput } = require('./middleware/sanitize')
 
 const app = express()
+app.set('trust proxy', 1)
 
 app.use(cors({
     origin: [
