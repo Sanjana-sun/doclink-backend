@@ -13,7 +13,6 @@ const getPrisma = async () => {
     return prisma
 }
 
-// Admin middleware
 const adminOnly = async (req, res, next) => {
     try {
         const db = await getPrisma()
@@ -28,7 +27,6 @@ const adminOnly = async (req, res, next) => {
     }
 }
 
-// Get platform stats
 router.get('/stats', auth, adminOnly, async (req, res) => {
     try {
         const db = await getPrisma()
@@ -51,7 +49,6 @@ router.get('/stats', auth, adminOnly, async (req, res) => {
     }
 })
 
-// Get all doctors
 router.get('/doctors', auth, adminOnly, async (req, res) => {
     try {
         const db = await getPrisma()
@@ -74,7 +71,6 @@ router.get('/doctors', auth, adminOnly, async (req, res) => {
     }
 })
 
-// Verify a doctor
 router.put('/doctors/:id/verify', auth, adminOnly, async (req, res) => {
     try {
         const db = await getPrisma()
@@ -83,7 +79,6 @@ router.put('/doctors/:id/verify', auth, adminOnly, async (req, res) => {
             data: { verified: true },
             select: { id: true, name: true, email: true, specialty: true, hospital: true, verified: true }
         })
-        // Send verification approved email
         await sendVerificationApprovedEmail({ name: doctor.name, email: doctor.email })
         res.json(doctor)
     } catch (err) {
@@ -92,7 +87,6 @@ router.put('/doctors/:id/verify', auth, adminOnly, async (req, res) => {
     }
 })
 
-// Reject/unverify a doctor
 router.put('/doctors/:id/reject', auth, adminOnly, async (req, res) => {
     try {
         const db = await getPrisma()
@@ -107,7 +101,6 @@ router.put('/doctors/:id/reject', auth, adminOnly, async (req, res) => {
     }
 })
 
-// Delete a doctor
 router.delete('/doctors/:id', auth, adminOnly, async (req, res) => {
     try {
         const db = await getPrisma()
@@ -119,7 +112,6 @@ router.delete('/doctors/:id', auth, adminOnly, async (req, res) => {
     }
 })
 
-// Get all cases
 router.get('/cases', auth, adminOnly, async (req, res) => {
     try {
         const db = await getPrisma()
@@ -137,7 +129,6 @@ router.get('/cases', auth, adminOnly, async (req, res) => {
     }
 })
 
-// Delete a case
 router.delete('/cases/:id', auth, adminOnly, async (req, res) => {
     try {
         const db = await getPrisma()
@@ -146,6 +137,18 @@ router.delete('/cases/:id', auth, adminOnly, async (req, res) => {
     } catch (err) {
         console.error(err)
         res.status(500).json({ error: 'Server error' })
+    }
+})
+
+// Trigger weekly email manually
+router.post('/trigger-weekly-email', auth, adminOnly, async (req, res) => {
+    try {
+        const { sendWeeklyEmails } = require('../jobs/weeklyEmail')
+        await sendWeeklyEmails()
+        res.json({ message: 'Weekly email job triggered successfully' })
+    } catch (err) {
+        console.error(err)
+        res.status(500).json({ error: 'Failed to trigger weekly email: ' + err.message })
     }
 })
 
