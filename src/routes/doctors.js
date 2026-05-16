@@ -100,4 +100,27 @@ router.get('/:id', auth, async (req, res) => {
     }
 })
 
+router.get('/me/stats', auth, async (req, res) => {
+    try {
+        const db = await getPrisma()
+        const doctor = await db.doctor.findUnique({
+            where: { id: req.doctorId },
+            select: {
+                reputation: true,
+                cmeCredits: true,
+                _count: { select: { cases: true, responses: true } }
+            }
+        })
+        res.json({
+            reputation: doctor.reputation,
+            cmeCredits: doctor.cmeCredits,
+            casesPosted: doctor._count.cases,
+            responsesGiven: doctor._count.responses,
+        })
+    } catch (err) {
+        console.error(err)
+        res.status(500).json({ error: 'Server error' })
+    }
+})
+
 module.exports = router
