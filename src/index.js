@@ -20,10 +20,7 @@ const { helmet, xss, sanitizeInput } = require('./middleware/sanitize')
 
 const app = express()
 app.set('trust proxy', 1)
-app.use((req, res, next) => {
-    console.log('IP:', req.ip, 'X-Forwarded-For:', req.headers['x-forwarded-for'])
-    next()
-})
+
 
 app.use(cors({
     origin: [
