@@ -26,7 +26,6 @@ model Doctor {
   isAdmin      Boolean  @default(false)
   consultationsAsDoctor     Consultation[] @relation("ConsultationDoctor")
   consultationsAsSpecialist Consultation[] @relation("ConsultationSpecialist")
-
   cases        Case[]
   responses    Response[]
   cmeLog       CMELog[]
@@ -46,9 +45,8 @@ model Case {
   views          Int      @default(0)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
-
   doctorId       String
-  doctor         Doctor   @relation(fields: [doctorId], references: [id])
+  doctor         Doctor   @relation(fields: [doctorId], references: [id], onDelete: Cascade)
   responses      Response[]
   cmeLog         CMELog[]
 }
@@ -58,11 +56,10 @@ model Response {
   text      String
   helpful   Int      @default(0)
   createdAt DateTime @default(now())
-
   doctorId  String
-  doctor    Doctor   @relation(fields: [doctorId], references: [id])
+  doctor    Doctor   @relation(fields: [doctorId], references: [id], onDelete: Cascade)
   caseId    String
-  case      Case     @relation(fields: [caseId], references: [id])
+  case      Case     @relation(fields: [caseId], references: [id], onDelete: Cascade)
 }
 
 model CMELog {
@@ -70,11 +67,10 @@ model CMELog {
   action    String
   points    Float
   createdAt DateTime @default(now())
-
   doctorId  String
-  doctor    Doctor   @relation(fields: [doctorId], references: [id])
+  doctor    Doctor   @relation(fields: [doctorId], references: [id], onDelete: Cascade)
   caseId    String?
-  case      Case?    @relation(fields: [caseId], references: [id])
+  case      Case?    @relation(fields: [caseId], references: [id], onDelete: Cascade)
 }
 
 model Follow {
@@ -82,10 +78,8 @@ model Follow {
   followerId  String
   followingId String
   createdAt   DateTime @default(now())
-
-  follower    Doctor   @relation("Follower", fields: [followerId], references: [id])
-  following   Doctor   @relation("Following", fields: [followingId], references: [id])
-
+  follower    Doctor   @relation("Follower", fields: [followerId], references: [id], onDelete: Cascade)
+  following   Doctor   @relation("Following", fields: [followingId], references: [id], onDelete: Cascade)
   @@unique([followerId, followingId])
 }
 
@@ -96,9 +90,8 @@ model Notification {
   read      Boolean  @default(false)
   caseId    String?
   createdAt DateTime @default(now())
-
   doctorId  String
-  doctor    Doctor   @relation(fields: [doctorId], references: [id])
+  doctor    Doctor   @relation(fields: [doctorId], references: [id], onDelete: Cascade)
 }
 
 model BlockchainLog {
@@ -122,10 +115,9 @@ model Consultation {
   scheduledAt  DateTime?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
-
   doctorId     String
-  doctor       Doctor   @relation("ConsultationDoctor", fields: [doctorId], references: [id])
+  doctor       Doctor   @relation("ConsultationDoctor", fields: [doctorId], references: [id], onDelete: Cascade)
   specialistId String
-  specialist   Doctor   @relation("ConsultationSpecialist", fields: [specialistId], references: [id])
+  specialist   Doctor   @relation("ConsultationSpecialist", fields: [specialistId], references: [id], onDelete: Cascade)
   notes        String?
 }
