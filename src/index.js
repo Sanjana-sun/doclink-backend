@@ -16,6 +16,7 @@ const leaderboardRoutes = require('./routes/leaderboard')
 const videocallRoutes = require('./routes/videocall')
 const consultationRoutes = require('./routes/consultations')
 const { general, auth, api } = require('./middleware/rateLimiter')
+const { helmet, xss, sanitizeInput } = require('./middleware/sanitize')
 
 const app = express()
 
@@ -46,6 +47,9 @@ app.use('/api/consultations', consultationRoutes)
 app.use(general)
 app.use('/api/auth', auth)
 app.use('/api', api)
+app.use(helmet())
+app.use(xss())
+app.use(sanitizeInput)
 
 app.get('/api/health', (req, res) => res.json({ status: 'DocLink API running' }))
 
