@@ -2,6 +2,7 @@ const express = require('express')
 const bcrypt = require('bcryptjs')
 const jwt = require('jsonwebtoken')
 const { sendOTP, verifyOTP } = require('../middleware/otp')
+const { encrypt, decrypt } = require('../utils/encrypt')
 
 const router = express.Router()
 
@@ -24,7 +25,9 @@ router.post('/register', async (req, res) => {
         const exists = await db.doctor.findUnique({ where: { email } })
         if (exists) return res.status(400).json({ error: 'Email already registered' })
         const hashed = await bcrypt.hash(password, 12)
-        await db.doctor.create({ data: { name, email, password: hashed, license, hospital, specialty } })
+        await db.doctor.create({
+            data: { name, email, password: hashed, license: encrypt(license), hospital, specialty }
+        })
         const { Resend } = require('resend')
         const resend = new Resend(process.env.RESEND_API_KEY)
         try {
@@ -67,7 +70,19 @@ router.post('/verify-otp', async (req, res) => {
             process.env.JWT_SECRET,
             { expiresIn: '7d' }
         )
-        res.json({ token, doctor: { id: doctor.id, name: doctor.name, email: doctor.email, specialty: doctor.specialty, hospital: doctor.hospital, verified: doctor.verified, isAdmin: doctor.isAdmin } })
+        res.json({
+            token,
+            doctor: {
+                id: doctor.id,
+                name: doctor.name,
+                email: doctor.email,
+                specialty: doctor.specialty,
+                hospital: doctor.hospital,
+                verified: doctor.verified,
+                isAdmin: doctor.isAdmin,
+                license: decrypt(doctor.license),
+            }
+        })
     } catch (err) { console.error(err); res.status(500).json({ error: 'Server error' }) }
 })
 
