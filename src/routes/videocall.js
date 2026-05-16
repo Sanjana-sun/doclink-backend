@@ -37,7 +37,7 @@ router.post('/create/:consultationId', auth, async (req, res) => {
             })
         }
 
-        res.json({ roomName, url: `https://meet.jit.si/${roomName}` })
+        res.json({ roomName, url: `https://jitsi.riot.im/${roomName}` })
     } catch (err) {
         console.error(err)
         res.status(500).json({ error: 'Server error' })
@@ -61,7 +61,7 @@ router.get('/:consultationId', auth, async (req, res) => {
 
         if (!consultation.roomName) return res.status(404).json({ error: 'No room created yet' })
 
-        res.json({ roomName: consultation.roomName, url: `https://meet.jit.si/${consultation.roomName}` })
+        res.json({ roomName: consultation.roomName, url: `https://jitsi.riot.im/${consultation.roomName}` })
     } catch (err) {
         console.error(err)
         res.status(500).json({ error: 'Server error' })
