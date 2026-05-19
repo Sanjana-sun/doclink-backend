@@ -12,6 +12,39 @@ const getPrisma = async () => {
     return prisma
 }
 
+// Store doctor's public key
+router.post('/me/publickey', auth, async (req, res) => {
+    try {
+        const db = await getPrisma()
+        const { publicKey } = req.body
+        if (!publicKey) return res.status(400).json({ error: 'Public key required' })
+        await db.doctor.update({
+            where: { id: req.doctorId },
+            data: { publicKey }
+        })
+        res.json({ message: 'Public key stored' })
+    } catch (err) {
+        console.error(err)
+        res.status(500).json({ error: 'Server error' })
+    }
+})
+
+// Get a doctor's public key
+router.get('/:id/publickey', auth, async (req, res) => {
+    try {
+        const db = await getPrisma()
+        const doctor = await db.doctor.findUnique({
+            where: { id: req.params.id },
+            select: { publicKey: true }
+        })
+        if (!doctor) return res.status(404).json({ error: 'Doctor not found' })
+        res.json({ publicKey: doctor.publicKey })
+    } catch (err) {
+        console.error(err)
+        res.status(500).json({ error: 'Server error' })
+    }
+})
+
 // Search doctors
 router.get('/', auth, async (req, res) => {
     try {

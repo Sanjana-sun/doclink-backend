@@ -29,6 +29,7 @@ model Doctor {
   cases        Case[]
   responses    Response[]
   cmeLog       CMELog[]
+  publicKey    String?
 }
 
 model Case {
