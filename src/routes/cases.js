@@ -13,6 +13,40 @@ const getPrisma = async () => {
     return prisma
 }
 
+// Edit a case
+router.put('/:id', auth, async (req, res) => {
+    try {
+        const db = await getPrisma()
+        const { title, question, urgency } = req.body
+        const caseData = await db.case.findUnique({ where: { id: req.params.id } })
+        if (!caseData) return res.status(404).json({ error: 'Case not found' })
+        if (caseData.doctorId !== req.doctorId) return res.status(403).json({ error: 'Unauthorized' })
+        const updated = await db.case.update({
+            where: { id: req.params.id },
+            data: { title, question, urgency }
+        })
+        res.json(updated)
+    } catch (err) {
+        console.error(err)
+        res.status(500).json({ error: 'Server error' })
+    }
+})
+
+// Delete a case
+router.delete('/:id', auth, async (req, res) => {
+    try {
+        const db = await getPrisma()
+        const caseData = await db.case.findUnique({ where: { id: req.params.id } })
+        if (!caseData) return res.status(404).json({ error: 'Case not found' })
+        if (caseData.doctorId !== req.doctorId) return res.status(403).json({ error: 'Unauthorized' })
+        await db.case.delete({ where: { id: req.params.id } })
+        res.json({ message: 'Case deleted' })
+    } catch (err) {
+        console.error(err)
+        res.status(500).json({ error: 'Server error' })
+    }
+})
+
 // Store encrypted case key (called when posting a case)
 router.post('/:id/key', auth, async (req, res) => {
     try {
