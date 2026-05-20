@@ -13,6 +13,94 @@ const getPrisma = async () => {
     return prisma
 }
 
+// Store encrypted case key (called when posting a case)
+router.post('/:id/key', auth, async (req, res) => {
+    try {
+        const db = await getPrisma()
+        const { encryptedKey } = req.body
+        if (!encryptedKey) return res.status(400).json({ error: 'encryptedKey required' })
+
+        // Verify requester owns the case
+        const caseData = await db.case.findUnique({
+            where: { id: req.params.id },
+            select: { doctorId: true, tag: true }
+        })
+        if (!caseData) return res.status(404).json({ error: 'Case not found' })
+        if (caseData.doctorId !== req.doctorId) return res.status(403).json({ error: 'Unauthorized' })
+
+        // Store encrypted key for case author
+        await db.caseKey.upsert({
+            where: { caseId_doctorId: { caseId: req.params.id, doctorId: req.doctorId } },
+            update: { encryptedKey },
+            create: { caseId: req.params.id, doctorId: req.doctorId, encryptedKey }
+        })
+
+        res.json({ message: 'Key stored' })
+    } catch (err) {
+        console.error(err)
+        res.status(500).json({ error: 'Server error' })
+    }
+})
+
+// Get case key (server checks verification + specialty, logs access)
+router.get('/:id/key', auth, async (req, res) => {
+    try {
+        const db = await getPrisma()
+
+        // Get case
+        const caseData = await db.case.findUnique({
+            where: { id: req.params.id },
+            select: { doctorId: true, tag: true }
+        })
+        if (!caseData) return res.status(404).json({ error: 'Case not found' })
+
+        // Get requesting doctor
+        const doctor = await db.doctor.findUnique({
+            where: { id: req.doctorId },
+            select: { verified: true, specialty: true, publicKey: true }
+        })
+        if (!doctor) return res.status(404).json({ error: 'Doctor not found' })
+        if (!doctor.verified) return res.status(403).json({ error: 'Account not verified' })
+
+        // Log every access attempt — immutable audit trail
+        await db.blockchainLog.create({
+            data: {
+                action: 'CASE_KEY_REQUEST',
+                entityType: 'Case',
+                entityId: req.params.id,
+                doctorId: req.doctorId,
+                dataHash: `${req.doctorId}-${req.params.id}-${Date.now()}`,
+                previousHash: req.headers['x-forwarded-for'] || 'unknown',
+                blockHash: require('crypto').createHash('sha256')
+                    .update(`${req.doctorId}${req.params.id}${Date.now()}`)
+                    .digest('hex')
+            }
+        })
+
+        // Check if doctor already has a key (author or previously shared)
+        let caseKey = await db.caseKey.findUnique({
+            where: { caseId_doctorId: { caseId: req.params.id, doctorId: req.doctorId } }
+        })
+
+        if (caseKey) {
+            return res.json({ encryptedKey: caseKey.encryptedKey })
+        }
+
+        // Doctor doesn't have key yet — check if they're in the right specialty
+        if (doctor.specialty !== caseData.tag && caseData.doctorId !== req.doctorId) {
+            return res.status(403).json({ error: 'You need to be in the same specialty to access this case' })
+        }
+
+        // Get case author's key and re-encrypt for requesting doctor
+        // For now return null — key sharing from author needed
+        return res.status(404).json({ error: 'No key available — request access from case author' })
+
+    } catch (err) {
+        console.error(err)
+        res.status(500).json({ error: 'Server error' })
+    }
+})
+
 router.get('/', async (req, res) => {
     try {
         const db = await getPrisma()

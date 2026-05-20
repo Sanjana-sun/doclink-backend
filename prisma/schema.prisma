@@ -122,3 +122,13 @@ model Consultation {
   specialist   Doctor   @relation("ConsultationSpecialist", fields: [specialistId], references: [id], onDelete: Cascade)
   notes        String?
 }
+
+model CaseKey {
+  id           String   @id @default(cuid())
+  caseId       String
+  doctorId     String
+  encryptedKey String   // case key encrypted with doctor's public key
+  createdAt    DateTime @default(now())
+
+  @@unique([caseId, doctorId])
+}
