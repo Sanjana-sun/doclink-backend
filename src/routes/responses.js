@@ -2,6 +2,7 @@ const express = require('express')
 const auth = require('../middleware/auth')
 const { createBlock } = require('../services/blockchain')
 const { sendNotification } = require('./notifications')
+const behaviorLog = require('../services/behaviorLog')
 
 const router = express.Router()
 
@@ -43,6 +44,8 @@ router.post('/:caseId', auth, async (req, res) => {
             doctorId: req.doctorId,
             data: { text: text.slice(0, 100), caseId: req.params.caseId }
         })
+
+        behaviorLog.log(req.doctorId, 'RESPONSE_SUBMITTED', req.params.caseId, { caseTitle: caseData.title.slice(0, 80) }, req.headers['x-forwarded-for'] || req.ip)
 
         // Notify case owner
         if (caseData.doctorId !== req.doctorId) {
@@ -89,6 +92,8 @@ router.post('/:id/helpful', auth, async (req, res) => {
             where: { id: response.doctorId },
             data: { cmeCredits: { increment: 0.5 }, reputation: { increment: 5 } }
         })
+
+        behaviorLog.log(req.doctorId, 'HELPFUL_VOTED', req.params.id, null, req.headers['x-forwarded-for'] || req.ip)
 
         res.json(response)
     } catch (err) {
