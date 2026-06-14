@@ -30,6 +30,7 @@ model Doctor {
   responses    Response[]
   cmeLog       CMELog[]
   publicKey    String?
+  behaviorLogs BehaviorLog[]
 }
 
 model Case {
@@ -132,5 +133,16 @@ model CaseKey {
   createdAt    DateTime @default(now())
 
   @@unique([caseId, doctorId])
+}
+
+model BehaviorLog {
+  id        String   @default(cuid()) @id
+  doctorId  String
+  action    String
+  entityId  String?
+  metadata  Json?
+  ip        String?
+  createdAt DateTime @default(now())
+  doctor    Doctor   @relation(fields: [doctorId], references: [id], onDelete: Cascade)
 }
 

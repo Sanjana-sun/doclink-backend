@@ -1,6 +1,7 @@
 const express = require('express')
 const auth = require('../middleware/auth')
 const { createBlock } = require('../services/blockchain')
+const behaviorLog = require('../services/behaviorLog')
 
 const router = express.Router()
 
@@ -25,6 +26,7 @@ router.put('/:id', auth, async (req, res) => {
             where: { id: req.params.id },
             data: { title, question, urgency }
         })
+        behaviorLog.log(req.doctorId, 'CASE_EDITED', req.params.id, { title, urgency }, req.headers['x-forwarded-for'] || req.ip)
         res.json(updated)
     } catch (err) {
         console.error(err)
@@ -39,6 +41,7 @@ router.delete('/:id', auth, async (req, res) => {
         const caseData = await db.case.findUnique({ where: { id: req.params.id } })
         if (!caseData) return res.status(404).json({ error: 'Case not found' })
         if (caseData.doctorId !== req.doctorId) return res.status(403).json({ error: 'Unauthorized' })
+        behaviorLog.log(req.doctorId, 'CASE_DELETED', req.params.id, { title: caseData.title }, req.headers['x-forwarded-for'] || req.ip)
         await db.case.delete({ where: { id: req.params.id } })
         res.json({ message: 'Case deleted' })
     } catch (err) {
@@ -122,7 +125,7 @@ router.get('/', async (req, res) => {
         const { tag, search } = req.query
         const cases = await db.case.findMany({
             where: {
-                isHoneypot: false, // Never show honeypot cases in feeds
+                isHoneypot: false,
                 ...(tag && { tag }),
                 ...(search && { title: { contains: search, mode: 'insensitive' } })
             },
@@ -139,7 +142,7 @@ router.get('/', async (req, res) => {
     }
 })
 
-// Get single case — detects honeypot access
+// Get single case — detects honeypot access + logs view
 router.get('/:id', async (req, res) => {
     try {
         const db = await getPrisma()
@@ -158,71 +161,73 @@ router.get('/:id', async (req, res) => {
         // Increment views
         await db.case.update({ where: { id: req.params.id }, data: { views: { increment: 1 } } })
 
+        // Decode token if present
+        const token = req.headers.authorization?.split(' ')[1]
+        let accessingDoctorId = null
+        if (token) {
+            try {
+                const jwt = require('jsonwebtoken')
+                const decoded = jwt.verify(token, process.env.JWT_SECRET)
+                accessingDoctorId = decoded.doctorId
+            } catch (e) {}
+        }
+
+        // Log case view
+        if (accessingDoctorId) {
+            behaviorLog.log(accessingDoctorId, 'CASE_VIEWED', req.params.id, { title: caseData.title, tag: caseData.tag }, req.headers['x-forwarded-for'] || req.ip)
+        }
+
         // Detect honeypot access
-        if (caseData.isHoneypot) {
-            // Get the requesting doctor from token if available
-            const token = req.headers.authorization?.split(' ')[1]
-            if (token) {
-                try {
-                    const jwt = require('jsonwebtoken')
-                    const decoded = jwt.verify(token, process.env.JWT_SECRET)
-                    const accessingDoctorId = decoded.doctorId
+        if (caseData.isHoneypot && accessingDoctorId && accessingDoctorId !== caseData.doctorId) {
+            console.warn(`🚨 HONEYPOT ACCESS: Doctor ${accessingDoctorId} accessed honeypot case ${req.params.id}`)
 
-                    if (accessingDoctorId !== caseData.doctorId) {
-                        console.warn(`🚨 HONEYPOT ACCESS: Doctor ${accessingDoctorId} accessed honeypot case ${req.params.id}`)
-
-                        // Log to blockchain
-                        await db.blockchainLog.create({
-                            data: {
-                                action: 'HONEYPOT_ACCESS',
-                                entityType: 'Case',
-                                entityId: req.params.id,
-                                doctorId: accessingDoctorId,
-                                dataHash: `HONEYPOT-${accessingDoctorId}-${Date.now()}`,
-                                previousHash: req.headers['x-forwarded-for'] || req.ip || 'unknown',
-                                blockHash: require('crypto').createHash('sha256')
-                                    .update(`HONEYPOT${accessingDoctorId}${req.params.id}${Date.now()}`)
-                                    .digest('hex')
-                            }
-                        })
-
-                        // Send alert email to admin
-                        try {
-                            const { Resend } = require('resend')
-                            const resend = new Resend(process.env.RESEND_API_KEY)
-                            const accessingDoctor = await db.doctor.findUnique({
-                                where: { id: accessingDoctorId },
-                                select: { name: true, email: true, specialty: true, hospital: true }
-                            })
-                            await resend.emails.send({
-                                from: 'noreply@doclink.in',
-                                to: 'sanjanainjamuri13@gmail.com',
-                                subject: '🚨 HONEYPOT ACCESS DETECTED — DocLink Security Alert',
-                                html: `
-                  <div style="font-family: sans-serif; padding: 2rem; max-width: 560px;">
-                    <h2 style="color: #ef4444; margin-bottom: 1rem;">Honeypot Access Alert</h2>
-                    <p style="color: #6b6b62; margin-bottom: 1.5rem;">A doctor has accessed a honeypot case. This may indicate malicious intent.</p>
-                    <table style="border-collapse: collapse; width: 100%; margin-bottom: 1.5rem;">
-                      <tr><td style="padding: 8px 12px; border: 1px solid #e5e7eb; background: #f9fafb;"><strong>Doctor</strong></td><td style="padding: 8px 12px; border: 1px solid #e5e7eb;">${accessingDoctor?.name}</td></tr>
-                      <tr><td style="padding: 8px 12px; border: 1px solid #e5e7eb; background: #f9fafb;"><strong>Email</strong></td><td style="padding: 8px 12px; border: 1px solid #e5e7eb;">${accessingDoctor?.email}</td></tr>
-                      <tr><td style="padding: 8px 12px; border: 1px solid #e5e7eb; background: #f9fafb;"><strong>Specialty</strong></td><td style="padding: 8px 12px; border: 1px solid #e5e7eb;">${accessingDoctor?.specialty}</td></tr>
-                      <tr><td style="padding: 8px 12px; border: 1px solid #e5e7eb; background: #f9fafb;"><strong>Hospital</strong></td><td style="padding: 8px 12px; border: 1px solid #e5e7eb;">${accessingDoctor?.hospital}</td></tr>
-                      <tr><td style="padding: 8px 12px; border: 1px solid #e5e7eb; background: #f9fafb;"><strong>Case ID</strong></td><td style="padding: 8px 12px; border: 1px solid #e5e7eb;">${req.params.id}</td></tr>
-                      <tr><td style="padding: 8px 12px; border: 1px solid #e5e7eb; background: #f9fafb;"><strong>Case Title</strong></td><td style="padding: 8px 12px; border: 1px solid #e5e7eb;">${caseData.title}</td></tr>
-                      <tr><td style="padding: 8px 12px; border: 1px solid #e5e7eb; background: #f9fafb;"><strong>IP Address</strong></td><td style="padding: 8px 12px; border: 1px solid #e5e7eb;">${req.headers['x-forwarded-for'] || req.ip || 'unknown'}</td></tr>
-                      <tr><td style="padding: 8px 12px; border: 1px solid #e5e7eb; background: #f9fafb;"><strong>Time</strong></td><td style="padding: 8px 12px; border: 1px solid #e5e7eb;">${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} IST</td></tr>
-                    </table>
-                    <a href="https://www.doclink.in/admin" style="display: inline-block; background: #ef4444; color: white; padding: 0.75rem 1.5rem; border-radius: 8px; text-decoration: none; font-weight: 500;">Review in Admin Panel →</a>
-                  </div>
-                `
-                            })
-                        } catch (emailErr) {
-                            console.error('Failed to send honeypot alert email:', emailErr)
-                        }
-                    }
-                } catch (jwtErr) {
-                    // Invalid token — still return the case
+            await db.blockchainLog.create({
+                data: {
+                    action: 'HONEYPOT_ACCESS',
+                    entityType: 'Case',
+                    entityId: req.params.id,
+                    doctorId: accessingDoctorId,
+                    dataHash: `HONEYPOT-${accessingDoctorId}-${Date.now()}`,
+                    previousHash: req.headers['x-forwarded-for'] || req.ip || 'unknown',
+                    blockHash: require('crypto').createHash('sha256')
+                        .update(`HONEYPOT${accessingDoctorId}${req.params.id}${Date.now()}`)
+                        .digest('hex')
                 }
+            })
+
+            behaviorLog.log(accessingDoctorId, 'HONEYPOT_ACCESSED', req.params.id, { title: caseData.title }, req.headers['x-forwarded-for'] || req.ip)
+
+            try {
+                const { Resend } = require('resend')
+                const resend = new Resend(process.env.RESEND_API_KEY)
+                const accessingDoctor = await db.doctor.findUnique({
+                    where: { id: accessingDoctorId },
+                    select: { name: true, email: true, specialty: true, hospital: true }
+                })
+                await resend.emails.send({
+                    from: 'noreply@doclink.in',
+                    to: 'sanjanainjamuri13@gmail.com',
+                    subject: '🚨 HONEYPOT ACCESS DETECTED — DocLink Security Alert',
+                    html: `
+            <div style="font-family: sans-serif; padding: 2rem; max-width: 560px;">
+              <h2 style="color: #ef4444; margin-bottom: 1rem;">Honeypot Access Alert</h2>
+              <p style="color: #6b6b62; margin-bottom: 1.5rem;">A doctor has accessed a honeypot case. This may indicate malicious intent.</p>
+              <table style="border-collapse: collapse; width: 100%; margin-bottom: 1.5rem;">
+                <tr><td style="padding: 8px 12px; border: 1px solid #e5e7eb; background: #f9fafb;"><strong>Doctor</strong></td><td style="padding: 8px 12px; border: 1px solid #e5e7eb;">${accessingDoctor?.name}</td></tr>
+                <tr><td style="padding: 8px 12px; border: 1px solid #e5e7eb; background: #f9fafb;"><strong>Email</strong></td><td style="padding: 8px 12px; border: 1px solid #e5e7eb;">${accessingDoctor?.email}</td></tr>
+                <tr><td style="padding: 8px 12px; border: 1px solid #e5e7eb; background: #f9fafb;"><strong>Specialty</strong></td><td style="padding: 8px 12px; border: 1px solid #e5e7eb;">${accessingDoctor?.specialty}</td></tr>
+                <tr><td style="padding: 8px 12px; border: 1px solid #e5e7eb; background: #f9fafb;"><strong>Hospital</strong></td><td style="padding: 8px 12px; border: 1px solid #e5e7eb;">${accessingDoctor?.hospital}</td></tr>
+                <tr><td style="padding: 8px 12px; border: 1px solid #e5e7eb; background: #f9fafb;"><strong>Case ID</strong></td><td style="padding: 8px 12px; border: 1px solid #e5e7eb;">${req.params.id}</td></tr>
+                <tr><td style="padding: 8px 12px; border: 1px solid #e5e7eb; background: #f9fafb;"><strong>Case Title</strong></td><td style="padding: 8px 12px; border: 1px solid #e5e7eb;">${caseData.title}</td></tr>
+                <tr><td style="padding: 8px 12px; border: 1px solid #e5e7eb; background: #f9fafb;"><strong>IP Address</strong></td><td style="padding: 8px 12px; border: 1px solid #e5e7eb;">${req.headers['x-forwarded-for'] || req.ip || 'unknown'}</td></tr>
+                <tr><td style="padding: 8px 12px; border: 1px solid #e5e7eb; background: #f9fafb;"><strong>Time</strong></td><td style="padding: 8px 12px; border: 1px solid #e5e7eb;">${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} IST</td></tr>
+              </table>
+              <a href="https://www.doclink.in/admin" style="display: inline-block; background: #ef4444; color: white; padding: 0.75rem 1.5rem; border-radius: 8px; text-decoration: none; font-weight: 500;">Review in Admin Panel →</a>
+            </div>
+          `
+                })
+            } catch (emailErr) {
+                console.error('Failed to send honeypot alert email:', emailErr)
             }
         }
 
@@ -261,6 +266,8 @@ router.post('/', auth, async (req, res) => {
             doctorId: req.doctorId,
             data: { title, tag, urgency, age, sex, question }
         })
+
+        behaviorLog.log(req.doctorId, 'CASE_POSTED', newCase.id, { title, tag, urgency }, req.headers['x-forwarded-for'] || req.ip)
 
         res.status(201).json(newCase)
     } catch (err) {

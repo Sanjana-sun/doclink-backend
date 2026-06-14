@@ -3,6 +3,7 @@ const bcrypt = require('bcryptjs')
 const jwt = require('jsonwebtoken')
 const { sendOTP, verifyOTP } = require('../middleware/otp')
 const { encrypt, decrypt } = require('../utils/encrypt')
+const behaviorLog = require('../services/behaviorLog')
 
 const router = express.Router()
 
@@ -70,6 +71,10 @@ router.post('/verify-otp', async (req, res) => {
             process.env.JWT_SECRET,
             { expiresIn: '7d' }
         )
+
+        // Log login
+        behaviorLog.log(doctor.id, 'LOGIN', null, { email: doctor.email }, req.headers['x-forwarded-for'] || req.ip)
+
         res.json({
             token,
             doctor: {
