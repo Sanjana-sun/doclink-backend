@@ -140,6 +140,24 @@ router.delete('/cases/:id', auth, adminOnly, async (req, res) => {
     }
 })
 
+// Behavior logs
+router.get('/behavior-logs', auth, adminOnly, async (req, res) => {
+    try {
+        const db = await getPrisma()
+        const logs = await db.behaviorLog.findMany({
+            orderBy: { createdAt: 'desc' },
+            take: 200,
+            include: {
+                doctor: { select: { name: true, specialty: true, hospital: true } }
+            }
+        })
+        res.json(logs)
+    } catch (err) {
+        console.error(err)
+        res.status(500).json({ error: 'Server error' })
+    }
+})
+
 // Trigger weekly email manually
 router.post('/trigger-weekly-email', auth, adminOnly, async (req, res) => {
     try {
