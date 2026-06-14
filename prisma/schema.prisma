@@ -50,6 +50,7 @@ model Case {
   doctor         Doctor   @relation(fields: [doctorId], references: [id], onDelete: Cascade)
   responses      Response[]
   cmeLog         CMELog[]
+  isHoneypot   Boolean  @default(false)
 }
 
 model Response {
@@ -132,3 +133,4 @@ model CaseKey {
 
   @@unique([caseId, doctorId])
 }
+
