@@ -31,6 +31,8 @@ model Doctor {
   cmeLog       CMELog[]
   publicKey    String?
   behaviorLogs BehaviorLog[]
+  passwordResetToken  String?
+  passwordResetExpiry DateTime?
 }
 
 model Case {

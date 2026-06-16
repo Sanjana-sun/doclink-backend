@@ -106,4 +106,72 @@ router.get('/me', async (req, res) => {
     } catch (err) { res.status(401).json({ error: 'Invalid token' }) }
 })
 
+router.post('/forgot-password', async (req, res) => {
+    try {
+        const db = await getPrisma()
+        const { email } = req.body
+        if (!email) return res.status(400).json({ error: 'Email required' })
+        const doctor = await db.doctor.findUnique({ where: { email } })
+        if (!doctor) return res.json({ message: 'If that email exists, a reset link has been sent.' })
+
+        const token = require('crypto').randomBytes(32).toString('hex')
+        const expiry = new Date(Date.now() + 60 * 60 * 1000) // 1 hour
+
+        await db.doctor.update({
+            where: { email },
+            data: { passwordResetToken: token, passwordResetExpiry: expiry }
+        })
+
+        const { Resend } = require('resend')
+        const resend = new Resend(process.env.RESEND_API_KEY)
+        await resend.emails.send({
+            from: 'noreply@doclink.in',
+            to: email,
+            subject: 'Reset your DocLink password',
+            html: `
+        <div style="font-family: sans-serif; padding: 2rem; max-width: 480px;">
+          <h2 style="font-family: Georgia, serif;">Reset your password</h2>
+          <p>Hi Dr. ${doctor.name},</p>
+          <p>Click the link below to reset your password. This link expires in 1 hour.</p>
+          <a href="https://www.doclink.in/reset-password?token=${token}" style="display: inline-block; background: #0d9488; color: white; padding: 0.75rem 1.5rem; border-radius: 8px; text-decoration: none; font-weight: 500; margin: 1rem 0;">Reset password →</a>
+          <p style="color: #6b7280; font-size: 0.875rem;">If you didn't request this, ignore this email.</p>
+        </div>
+      `
+        })
+
+        res.json({ message: 'If that email exists, a reset link has been sent.' })
+    } catch (err) {
+        console.error(err)
+        res.status(500).json({ error: 'Server error' })
+    }
+})
+
+router.post('/reset-password', async (req, res) => {
+    try {
+        const db = await getPrisma()
+        const { token, password } = req.body
+        if (!token || !password) return res.status(400).json({ error: 'Token and password required' })
+        if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' })
+
+        const doctor = await db.doctor.findFirst({
+            where: {
+                passwordResetToken: token,
+                passwordResetExpiry: { gt: new Date() }
+            }
+        })
+        if (!doctor) return res.status(400).json({ error: 'Invalid or expired reset link' })
+
+        const hashed = await bcrypt.hash(password, 12)
+        await db.doctor.update({
+            where: { id: doctor.id },
+            data: { password: hashed, passwordResetToken: null, passwordResetExpiry: null }
+        })
+
+        res.json({ message: 'Password reset successfully' })
+    } catch (err) {
+        console.error(err)
+        res.status(500).json({ error: 'Server error' })
+    }
+})
+
 module.exports = router
