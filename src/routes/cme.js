@@ -25,6 +25,7 @@ router.get('/me', auth, async (req, res) => {
             where: { id: req.doctorId },
             select: { cmeCredits: true, reputation: true }
         })
+        if (!doctor) return res.status(404).json({ error: 'Doctor not found' })
 
         const now = new Date()
         const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)

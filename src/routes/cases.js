@@ -14,17 +14,87 @@ const getPrisma = async () => {
     return prisma
 }
 
+// --- Case twin: similar-case retrieval ---
+// Clinical fields are E2E-encrypted, so similarity uses the plaintext signal
+// we do hold: title + question text, plus specialty tag and demographics.
+const STOP = new Set(['the', 'a', 'an', 'of', 'to', 'and', 'or', 'in', 'on', 'for', 'with', 'is', 'was', 'are', 'be', 'at', 'by', 'from', 'as', 'this', 'that', 'has', 'had', 'no', 'not', 'yr', 'yo', 'old', 'patient', 'case', 'history', 'presenting'])
+const tokenize = (s) => (s || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter(w => w.length > 2 && !STOP.has(w))
+const jaccard = (a, b) => {
+    if (!a.size || !b.size) return 0
+    let inter = 0
+    for (const t of a) if (b.has(t)) inter++
+    return inter / (a.size + b.size - inter)
+}
+
+router.get('/:id/similar', auth, async (req, res) => {
+    try {
+        const db = await getPrisma()
+        const target = await db.case.findUnique({
+            where: { id: req.params.id },
+            select: { id: true, tag: true, age: true, sex: true, title: true, question: true }
+        })
+        if (!target) return res.status(404).json({ error: 'Case not found' })
+
+        const candidates = await db.case.findMany({
+            where: { id: { not: target.id }, isHoneypot: false },
+            // Bound the scan: score against the most recent cases only
+            orderBy: { createdAt: 'desc' },
+            take: 500,
+            select: {
+                id: true, tag: true, age: true, sex: true, title: true, question: true, createdAt: true,
+                doctor: { select: { name: true, specialty: true } },
+                responses: { orderBy: { helpful: 'desc' }, take: 1, select: { text: true, helpful: true } },
+                _count: { select: { responses: true } },
+            },
+        })
+
+        const tTokens = new Set(tokenize(`${target.title} ${target.question}`))
+        const scored = candidates.map(c => {
+            const text = jaccard(tTokens, new Set(tokenize(`${c.title} ${c.question}`)))
+            const tagBoost = c.tag === target.tag ? 0.35 : 0
+            const sexBoost = c.sex === target.sex ? 0.05 : 0
+            const ageBoost = Math.abs((c.age || 0) - (target.age || 0)) <= 10 ? 0.05 : 0
+            return { c, score: text + tagBoost + sexBoost + ageBoost }
+        })
+            .filter(s => s.score > 0.12)
+            .sort((a, b) => b.score - a.score)
+            .slice(0, 4)
+
+        res.json(scored.map(({ c, score }) => ({
+            id: c.id, title: c.title, tag: c.tag, age: c.age, sex: c.sex,
+            createdAt: c.createdAt, specialty: c.doctor?.specialty,
+            responseCount: c._count.responses,
+            topResponse: c.responses[0]?.text?.slice(0, 180) || null,
+            match: Math.round(Math.min(score, 1) * 100),
+        })))
+    } catch (err) {
+        console.error(err)
+        res.status(500).json({ error: 'Server error' })
+    }
+})
+
 // Edit a case
 router.put('/:id', auth, async (req, res) => {
     try {
         const db = await getPrisma()
         const { title, question, urgency } = req.body
+        if (title !== undefined && !String(title).trim()) return res.status(400).json({ error: 'Title cannot be empty' })
+        if (question !== undefined && !String(question).trim()) return res.status(400).json({ error: 'Question cannot be empty' })
+        if (urgency !== undefined && !['routine', 'urgent', 'critical'].includes(urgency)) return res.status(400).json({ error: 'Invalid urgency' })
         const caseData = await db.case.findUnique({ where: { id: req.params.id } })
         if (!caseData) return res.status(404).json({ error: 'Case not found' })
         if (caseData.doctorId !== req.doctorId) return res.status(403).json({ error: 'Unauthorized' })
         const updated = await db.case.update({
             where: { id: req.params.id },
-            data: { title, question, urgency }
+            data: {
+                ...(title !== undefined && { title }),
+                ...(question !== undefined && { question }),
+                ...(urgency !== undefined && { urgency }),
+            }
         })
         behaviorLog.log(req.doctorId, 'CASE_EDITED', req.params.id, { title, urgency }, req.headers['x-forwarded-for'] || req.ip)
         res.json(updated)
@@ -90,18 +160,12 @@ router.get('/:id/key', auth, async (req, res) => {
         if (!doctor) return res.status(404).json({ error: 'Doctor not found' })
         if (!doctor.verified) return res.status(403).json({ error: 'Account not verified' })
 
-        await db.blockchainLog.create({
-            data: {
-                action: 'CASE_KEY_REQUEST',
-                entityType: 'Case',
-                entityId: req.params.id,
-                doctorId: req.doctorId,
-                dataHash: `${req.doctorId}-${req.params.id}-${Date.now()}`,
-                previousHash: req.headers['x-forwarded-for'] || 'unknown',
-                blockHash: require('crypto').createHash('sha256')
-                    .update(`${req.doctorId}${req.params.id}${Date.now()}`)
-                    .digest('hex')
-            }
+        await createBlock(db, {
+            action: 'CASE_KEY_REQUEST',
+            entityType: 'Case',
+            entityId: req.params.id,
+            doctorId: req.doctorId,
+            data: { doctorId: req.doctorId, caseId: req.params.id, ts: Date.now() },
         })
 
         let caseKey = await db.caseKey.findUnique({
@@ -181,18 +245,12 @@ router.get('/:id', async (req, res) => {
         if (caseData.isHoneypot && accessingDoctorId && accessingDoctorId !== caseData.doctorId) {
             console.warn(`🚨 HONEYPOT ACCESS: Doctor ${accessingDoctorId} accessed honeypot case ${req.params.id}`)
 
-            await db.blockchainLog.create({
-                data: {
-                    action: 'HONEYPOT_ACCESS',
-                    entityType: 'Case',
-                    entityId: req.params.id,
-                    doctorId: accessingDoctorId,
-                    dataHash: `HONEYPOT-${accessingDoctorId}-${Date.now()}`,
-                    previousHash: req.headers['x-forwarded-for'] || req.ip || 'unknown',
-                    blockHash: require('crypto').createHash('sha256')
-                        .update(`HONEYPOT${accessingDoctorId}${req.params.id}${Date.now()}`)
-                        .digest('hex')
-                }
+            await createBlock(db, {
+                action: 'HONEYPOT_ACCESS',
+                entityType: 'Case',
+                entityId: req.params.id,
+                doctorId: accessingDoctorId,
+                data: { accessingDoctorId, caseId: req.params.id, ip: req.headers['x-forwarded-for'] || req.ip, ts: Date.now() },
             })
 
             behaviorLog.log(accessingDoctorId, 'HONEYPOT_ACCESSED', req.params.id, { title: caseData.title }, req.headers['x-forwarded-for'] || req.ip)
@@ -206,7 +264,7 @@ router.get('/:id', async (req, res) => {
                 })
                 await resend.emails.send({
                     from: 'noreply@doclink.in',
-                    to: 'sanjanainjamuri13@gmail.com',
+                    to: process.env.SECURITY_ALERT_EMAIL || 'sanjanainjamuri13@gmail.com',
                     subject: '🚨 HONEYPOT ACCESS DETECTED — DocLink Security Alert',
                     html: `
             <div style="font-family: sans-serif; padding: 2rem; max-width: 560px;">
@@ -220,7 +278,7 @@ router.get('/:id', async (req, res) => {
                 <tr><td style="padding: 8px 12px; border: 1px solid #e5e7eb; background: #f9fafb;"><strong>Case ID</strong></td><td style="padding: 8px 12px; border: 1px solid #e5e7eb;">${req.params.id}</td></tr>
                 <tr><td style="padding: 8px 12px; border: 1px solid #e5e7eb; background: #f9fafb;"><strong>Case Title</strong></td><td style="padding: 8px 12px; border: 1px solid #e5e7eb;">${caseData.title}</td></tr>
                 <tr><td style="padding: 8px 12px; border: 1px solid #e5e7eb; background: #f9fafb;"><strong>IP Address</strong></td><td style="padding: 8px 12px; border: 1px solid #e5e7eb;">${req.headers['x-forwarded-for'] || req.ip || 'unknown'}</td></tr>
-                <tr><td style="padding: 8px 12px; border: 1px solid #e5e7eb; background: #f9fafb;"><strong>Time</strong></td><td style="padding: 8px 12px; border: 1px solid #e5e7eb;">${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} IST</td></tr>
+                <tr><td style="padding: 8px 12px; border: 1px solid #e5e7eb; background: #f9fafb;"><strong>Time</strong></td><td style="padding: 8px 12px; border: 1px solid #e5e7eb;">${new Date().toLocaleString('en-US', { timeZone: process.env.ALERT_TIMEZONE || 'UTC', timeZoneName: 'short' })}</td></tr>
               </table>
               <a href="https://www.doclink.in/admin" style="display: inline-block; background: #ef4444; color: white; padding: 0.75rem 1.5rem; border-radius: 8px; text-decoration: none; font-weight: 500;">Review in Admin Panel →</a>
             </div>
@@ -243,11 +301,18 @@ router.post('/', auth, async (req, res) => {
     try {
         const db = await getPrisma()
         const { title, tag, urgency, age, sex, history, examination, investigations, question } = req.body
-        if (!title || !tag || !urgency || !age || !sex || !history || !question) {
+        if (!title || !tag || !urgency || !sex || !history || !question) {
             return res.status(400).json({ error: 'Required fields missing' })
         }
+        const ageNum = parseInt(age)
+        if (!Number.isInteger(ageNum) || ageNum < 0 || ageNum > 130) {
+            return res.status(400).json({ error: 'Age must be a whole number between 0 and 130' })
+        }
+        if (!['routine', 'urgent', 'critical'].includes(urgency)) {
+            return res.status(400).json({ error: 'Invalid urgency' })
+        }
         const newCase = await db.case.create({
-            data: { title, tag, urgency, age: parseInt(age), sex, history, examination, investigations, question, doctorId: req.doctorId }
+            data: { title, tag, urgency, age: ageNum, sex, history, examination, investigations, question, doctorId: req.doctorId }
         })
 
         await db.cMELog.create({

@@ -1,6 +1,9 @@
 const express = require('express')
 const auth = require('../middleware/auth')
 const { sendVerificationApprovedEmail } = require('../services/email')
+const { checkRegistration } = require('../services/councilVerify')
+const { decrypt } = require('../utils/encrypt')
+const { createBlock, hashData } = require('../services/blockchain')
 
 const router = express.Router()
 
@@ -39,7 +42,7 @@ router.get('/stats', auth, adminOnly, async (req, res) => {
             db.doctor.findMany({
                 orderBy: { createdAt: 'desc' },
                 take: 5,
-                select: { id: true, name: true, email: true, specialty: true, hospital: true, verified: true, createdAt: true }
+                select: { id: true, name: true, email: true, specialty: true, hospital: true, verified: true, verificationStatus: true, country: true, medicalCouncil: true, createdAt: true }
             })
         ])
         res.json({ totalDoctors, verifiedDoctors, pendingDoctors, totalCases, totalResponses, recentDoctors })
@@ -58,7 +61,8 @@ router.get('/doctors', auth, adminOnly, async (req, res) => {
             orderBy: { createdAt: 'desc' },
             select: {
                 id: true, name: true, email: true, specialty: true,
-                hospital: true, verified: true, isAdmin: true,
+                hospital: true, verified: true, verificationStatus: true,
+                country: true, medicalCouncil: true, isAdmin: true,
                 license: true, createdAt: true, reputation: true,
                 cmeCredits: true,
                 _count: { select: { cases: true, responses: true } }
@@ -71,16 +75,52 @@ router.get('/doctors', auth, adminOnly, async (req, res) => {
     }
 })
 
+// Run an automated register check (verification model B) against the doctor's
+// country register. Manual review is still the fallback where no API exists.
+router.get('/doctors/:id/council-check', auth, adminOnly, async (req, res) => {
+    try {
+        const db = await getPrisma()
+        const doctor = await db.doctor.findUnique({
+            where: { id: req.params.id },
+            select: { name: true, country: true, license: true }
+        })
+        if (!doctor) return res.status(404).json({ error: 'Doctor not found' })
+        const result = await checkRegistration({
+            country: doctor.country,
+            registrationNumber: decrypt(doctor.license),
+            name: doctor.name,
+        })
+        res.json(result)
+    } catch (err) {
+        console.error(err)
+        res.status(500).json({ error: 'Server error' })
+    }
+})
+
 router.put('/doctors/:id/verify', auth, adminOnly, async (req, res) => {
     try {
         const db = await getPrisma()
-        const doctor = await db.doctor.update({
+        // Optional trust tier: 'verified' (document-checked, default) or 'council_verified' (register-confirmed)
+        const status = req.body?.status === 'council_verified' ? 'council_verified' : 'verified'
+        const exists = await db.doctor.findUnique({ where: { id: req.params.id }, select: { id: true } })
+        if (!exists) return res.status(404).json({ error: 'Doctor not found' })
+        const full = await db.doctor.update({
             where: { id: req.params.id },
-            data: { verified: true },
-            select: { id: true, name: true, email: true, specialty: true, hospital: true, verified: true }
+            data: { verified: true, verificationStatus: status },
+            select: { id: true, name: true, email: true, specialty: true, hospital: true, verified: true, verificationStatus: true, country: true, medicalCouncil: true }
         })
-        await sendVerificationApprovedEmail({ name: doctor.name, email: doctor.email })
-        res.json(doctor)
+        // Anchor the portable credential on the tamper-evident chain
+        try {
+            await createBlock(db, {
+                action: 'CREDENTIAL_ISSUED',
+                entityType: 'Doctor',
+                entityId: full.id,
+                doctorId: full.id,
+                data: { id: full.id, name: full.name, specialty: full.specialty, country: full.country, council: full.medicalCouncil, status: full.verificationStatus },
+            })
+        } catch (chainErr) { console.error('Credential anchor failed (non-fatal):', chainErr) }
+        await sendVerificationApprovedEmail({ name: full.name, email: full.email })
+        res.json(full)
     } catch (err) {
         console.error(err)
         res.status(500).json({ error: 'Server error' })
@@ -90,9 +130,11 @@ router.put('/doctors/:id/verify', auth, adminOnly, async (req, res) => {
 router.put('/doctors/:id/reject', auth, adminOnly, async (req, res) => {
     try {
         const db = await getPrisma()
+        const exists = await db.doctor.findUnique({ where: { id: req.params.id }, select: { id: true } })
+        if (!exists) return res.status(404).json({ error: 'Doctor not found' })
         const doctor = await db.doctor.update({
             where: { id: req.params.id },
-            data: { verified: false }
+            data: { verified: false, verificationStatus: 'rejected' }
         })
         res.json(doctor)
     } catch (err) {
@@ -104,6 +146,9 @@ router.put('/doctors/:id/reject', auth, adminOnly, async (req, res) => {
 router.delete('/doctors/:id', auth, adminOnly, async (req, res) => {
     try {
         const db = await getPrisma()
+        if (req.params.id === req.doctorId) return res.status(400).json({ error: 'You cannot delete your own admin account' })
+        const exists = await db.doctor.findUnique({ where: { id: req.params.id }, select: { id: true } })
+        if (!exists) return res.status(404).json({ error: 'Doctor not found' })
         await db.doctor.delete({ where: { id: req.params.id } })
         res.json({ message: 'Doctor deleted' })
     } catch (err) {

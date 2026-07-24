@@ -59,14 +59,16 @@ router.get('/', auth, async (req, res) => {
     }
 })
 
-// Mark one as read
+// Mark one as read (only your own)
 router.put('/:id/read', auth, async (req, res) => {
     try {
         const db = await getPrisma()
-        await db.notification.update({
-            where: { id: req.params.id },
+        // updateMany scopes to the owner — you can't mark someone else's notification read
+        const result = await db.notification.updateMany({
+            where: { id: req.params.id, doctorId: req.doctorId },
             data: { read: true }
         })
+        if (result.count === 0) return res.status(404).json({ error: 'Notification not found' })
         res.json({ success: true })
     } catch (err) {
         console.error(err)

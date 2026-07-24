@@ -15,6 +15,10 @@ const adminRoutes = require('./routes/admin')
 const leaderboardRoutes = require('./routes/leaderboard')
 const videocallRoutes = require('./routes/videocall')
 const consultationRoutes = require('./routes/consultations')
+const teachingRoutes = require('./routes/teaching')
+const credentialRoutes = require('./routes/credentials')
+const boardRoutes = require('./routes/boards')
+const signalRoutes = require('./routes/signals')
 const { general, auth, api } = require('./middleware/rateLimiter')
 const { helmet, xss, sanitizeInput } = require('./middleware/sanitize')
 const { scheduleWeeklyEmails } = require('./jobs/weeklyEmail')
@@ -24,6 +28,7 @@ app.set('trust proxy', 1)
 
 app.use(cors({
     origin: [
+        'http://localhost:5173',
         'http://localhost:5174',
         'https://doclink-frontend-kappa.vercel.app',
         'https://doclink.in',
@@ -32,14 +37,14 @@ app.use(cors({
     credentials: true
 }))
 
-// Security middleware FIRST
+// Security middleware
 app.use(helmet())
-app.use(xss())
-app.use(sanitizeInput)
 app.use(general)
 app.use('/api/auth', auth)
 
 app.use(express.json())
+// Body-dependent sanitizer must run AFTER the body is parsed
+app.use(sanitizeInput)
 
 // Routes
 app.use('/api/auth', authRoutes)
@@ -55,6 +60,10 @@ app.use('/api/admin', adminRoutes)
 app.use('/api/leaderboard', leaderboardRoutes)
 app.use('/api/videocall', videocallRoutes)
 app.use('/api/consultations', consultationRoutes)
+app.use('/api/teaching', teachingRoutes)
+app.use('/api/credentials', credentialRoutes)
+app.use('/api/boards', boardRoutes)
+app.use('/api/signals', signalRoutes)
 
 app.get('/api/health', (req, res) => res.json({ status: 'DocLink API running' }))
 

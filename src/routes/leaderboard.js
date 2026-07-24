@@ -182,10 +182,12 @@ router.get('/myrank', auth, async (req, res) => {
             .map(d => ({ id: d.id, score: calculateScore(d) }))
             .sort((a, b) => b.score - a.score)
 
-        const myRank = ranked.findIndex(d => d.id === req.doctorId) + 1
-        const myScore = ranked.find(d => d.id === req.doctorId)?.score || 0
+        const idx = ranked.findIndex(d => d.id === req.doctorId)
+        // Unverified/unlisted doctors aren't ranked yet
+        const myRank = idx === -1 ? null : idx + 1
+        const myScore = idx === -1 ? 0 : ranked[idx].score
 
-        res.json({ rank: myRank, score: myScore, total: ranked.length })
+        res.json({ rank: myRank, score: myScore, total: ranked.length, ranked: idx !== -1 })
     } catch (err) {
         console.error(err)
         res.status(500).json({ error: 'Server error' })

@@ -8,63 +8,96 @@ datasource db {
 }
 
 model Doctor {
-  id           String   @id @default(cuid())
-  name         String
-  email        String   @unique
-  password     String
-  license      String   @unique
-  hospital     String
-  specialty    String
-  reputation   Int      @default(0)
-  cmeCredits   Float    @default(0)
-  verified     Boolean  @default(false)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  followers    Follow[] @relation("Following")
-  following    Follow[] @relation("Follower")
-  notifications Notification[]
-  isAdmin      Boolean  @default(false)
-  consultationsAsDoctor     Consultation[] @relation("ConsultationDoctor")
-  consultationsAsSpecialist Consultation[] @relation("ConsultationSpecialist")
-  cases        Case[]
-  responses    Response[]
-  cmeLog       CMELog[]
-  publicKey    String?
-  behaviorLogs BehaviorLog[]
-  passwordResetToken  String?
-  passwordResetExpiry DateTime?
+  id                        String             @id @default(cuid())
+  name                      String
+  email                     String             @unique
+  password                  String
+  license                   String             @unique
+  hospital                  String
+  specialty                 String
+  // Universal: which country/medical-council this doctor is registered under.
+  country                   String             @default("IN")
+  medicalCouncil            String?
+  // Trust tiers: provisional (self-attested) | verified (document-checked) | council_verified (register-confirmed) | rejected
+  verificationStatus        String             @default("provisional")
+  preferredLanguage         String             @default("en")
+  reputation                Int                @default(0)
+  cmeCredits                Float              @default(0)
+  verified                  Boolean            @default(false)
+  createdAt                 DateTime           @default(now())
+  updatedAt                 DateTime           @updatedAt
+  followers                 Follow[]           @relation("Following")
+  following                 Follow[]           @relation("Follower")
+  notifications             Notification[]
+  isAdmin                   Boolean            @default(false)
+  consultationsAsDoctor     Consultation[]     @relation("ConsultationDoctor")
+  consultationsAsSpecialist Consultation[]     @relation("ConsultationSpecialist")
+  cases                     Case[]
+  responses                 Response[]
+  cmeLog                    CMELog[]
+  publicKey                 String?
+  behaviorLogs              BehaviorLog[]
+  passwordResetToken        String?
+  passwordResetExpiry       DateTime?
+  // On-call directory presence
+  availability              String             @default("offline") // available | busy | offline
+  availabilityUpdatedAt     DateTime?
+  // Editable profile details
+  bio                       String?
+  location                  String?
+  subSpecialty              String?
+  yearsExperience           Int?
+  teachingReviews           TeachingReview[]
+  boardsCreated             Board[]            @relation("BoardCreator")
+  boardParticipations       BoardParticipant[]
+  helpfulVotes              HelpfulVote[]
 }
 
 model Case {
-  id             String   @id @default(cuid())
-  title          String
-  tag            String
-  urgency        String
-  age            Int
-  sex            String
-  history        String
-  examination    String
-  investigations String
-  question       String
-  views          Int      @default(0)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  doctorId       String
-  doctor         Doctor   @relation(fields: [doctorId], references: [id], onDelete: Cascade)
-  responses      Response[]
-  cmeLog         CMELog[]
-  isHoneypot   Boolean  @default(false)
+  id              String           @id @default(cuid())
+  title           String
+  tag             String
+  urgency         String
+  age             Int
+  sex             String
+  history         String
+  examination     String
+  investigations  String
+  question        String
+  views           Int              @default(0)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  doctorId        String
+  doctor          Doctor           @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  responses       Response[]
+  cmeLog          CMELog[]
+  isHoneypot      Boolean          @default(false)
+  teachingReviews TeachingReview[]
+  boards          Board[]
 }
 
 model Response {
-  id        String   @id @default(cuid())
-  text      String
-  helpful   Int      @default(0)
-  createdAt DateTime @default(now())
-  doctorId  String
-  doctor    Doctor   @relation(fields: [doctorId], references: [id], onDelete: Cascade)
-  caseId    String
-  case      Case     @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  id           String        @id @default(cuid())
+  text         String
+  helpful      Int           @default(0)
+  createdAt    DateTime      @default(now())
+  doctorId     String
+  doctor       Doctor        @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  caseId       String
+  case         Case          @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  helpfulVotes HelpfulVote[]
+}
+
+// One "helpful" vote per doctor per response (prevents inflation / double-voting)
+model HelpfulVote {
+  id         String   @id @default(cuid())
+  responseId String
+  response   Response @relation(fields: [responseId], references: [id], onDelete: Cascade)
+  doctorId   String
+  doctor     Doctor   @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+
+  @@unique([responseId, doctorId])
 }
 
 model CMELog {
@@ -85,6 +118,7 @@ model Follow {
   createdAt   DateTime @default(now())
   follower    Doctor   @relation("Follower", fields: [followerId], references: [id], onDelete: Cascade)
   following   Doctor   @relation("Following", fields: [followingId], references: [id], onDelete: Cascade)
+
   @@unique([followerId, followingId])
 }
 
@@ -113,17 +147,17 @@ model BlockchainLog {
 }
 
 model Consultation {
-  id           String   @id @default(cuid())
+  id           String    @id @default(cuid())
   topic        String
-  status       String   @default("pending")
+  status       String    @default("pending")
   roomName     String?
   scheduledAt  DateTime?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
   doctorId     String
-  doctor       Doctor   @relation("ConsultationDoctor", fields: [doctorId], references: [id], onDelete: Cascade)
+  doctor       Doctor    @relation("ConsultationDoctor", fields: [doctorId], references: [id], onDelete: Cascade)
   specialistId String
-  specialist   Doctor   @relation("ConsultationSpecialist", fields: [specialistId], references: [id], onDelete: Cascade)
+  specialist   Doctor    @relation("ConsultationSpecialist", fields: [specialistId], references: [id], onDelete: Cascade)
   notes        String?
 }
 
@@ -131,14 +165,57 @@ model CaseKey {
   id           String   @id @default(cuid())
   caseId       String
   doctorId     String
-  encryptedKey String   // case key encrypted with doctor's public key
+  encryptedKey String // case key encrypted with doctor's public key
   createdAt    DateTime @default(now())
 
   @@unique([caseId, doctorId])
 }
 
+// Spaced-recall study progress over resolved cases (teaching library)
+model TeachingReview {
+  id            String   @id @default(cuid())
+  doctorId      String
+  doctor        Doctor   @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  caseId        String
+  case          Case     @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  timesReviewed Int      @default(0)
+  intervalDays  Int      @default(1)
+  ease          Float    @default(2.5)
+  lastReviewed  DateTime @default(now())
+  nextDue       DateTime
+  createdAt     DateTime @default(now())
+
+  @@unique([doctorId, caseId])
+}
+
+// Multi-doctor case discussion room (tumor board / MDT / second opinion)
+model Board {
+  id           String             @id @default(cuid())
+  topic        String
+  caseId       String?
+  case         Case?              @relation(fields: [caseId], references: [id], onDelete: SetNull)
+  createdById  String
+  createdBy    Doctor             @relation("BoardCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  roomName     String
+  status       String             @default("open") // open | closed
+  scheduledAt  DateTime?
+  createdAt    DateTime           @default(now())
+  participants BoardParticipant[]
+}
+
+model BoardParticipant {
+  id        String   @id @default(cuid())
+  boardId   String
+  board     Board    @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  doctorId  String
+  doctor    Doctor   @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([boardId, doctorId])
+}
+
 model BehaviorLog {
-  id        String   @default(cuid()) @id
+  id        String   @id @default(cuid())
   doctorId  String
   action    String
   entityId  String?
@@ -147,4 +224,3 @@ model BehaviorLog {
   createdAt DateTime @default(now())
   doctor    Doctor   @relation(fields: [doctorId], references: [id], onDelete: Cascade)
 }
-

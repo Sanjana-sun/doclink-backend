@@ -19,12 +19,15 @@ router.post('/:id', auth, async (req, res) => {
         if (req.params.id === req.doctorId) {
             return res.status(400).json({ error: 'You cannot follow yourself' })
         }
+        const target = await db.doctor.findUnique({ where: { id: req.params.id }, select: { id: true } })
+        if (!target) return res.status(404).json({ error: 'Doctor not found' })
         const follow = await db.follow.create({
             data: { followerId: req.doctorId, followingId: req.params.id }
         })
         res.status(201).json(follow)
     } catch (err) {
         if (err.code === 'P2002') return res.status(400).json({ error: 'Already following' })
+        if (err.code === 'P2003') return res.status(404).json({ error: 'Doctor not found' })
         console.error(err)
         res.status(500).json({ error: 'Server error' })
     }
@@ -34,13 +37,9 @@ router.post('/:id', auth, async (req, res) => {
 router.delete('/:id', auth, async (req, res) => {
     try {
         const db = await getPrisma()
-        await db.follow.delete({
-            where: {
-                followerId_followingId: {
-                    followerId: req.doctorId,
-                    followingId: req.params.id
-                }
-            }
+        // deleteMany doesn't throw when the row doesn't exist (idempotent unfollow)
+        await db.follow.deleteMany({
+            where: { followerId: req.doctorId, followingId: req.params.id }
         })
         res.json({ message: 'Unfollowed' })
     } catch (err) {

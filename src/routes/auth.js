@@ -19,16 +19,32 @@ const getPrisma = async () => {
 router.post('/register', async (req, res) => {
     try {
         const db = await getPrisma()
-        const { name, email, password, license, hospital, specialty } = req.body
-        if (!name || !email || !password || !license || !hospital || !specialty) {
+        const { name, email, password, license, hospital, specialty, country, medicalCouncil } = req.body
+        if (!name || !email || !password || !license || !hospital || !specialty || !country) {
             return res.status(400).json({ error: 'All fields required' })
+        }
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+            return res.status(400).json({ error: 'Invalid email address' })
+        }
+        if (String(password).length < 8) {
+            return res.status(400).json({ error: 'Password must be at least 8 characters' })
         }
         const exists = await db.doctor.findUnique({ where: { email } })
         if (exists) return res.status(400).json({ error: 'Email already registered' })
         const hashed = await bcrypt.hash(password, 12)
-        await db.doctor.create({
-            data: { name, email, password: hashed, license: encrypt(license), hospital, specialty }
-        })
+        try {
+            await db.doctor.create({
+                data: {
+                    name, email, password: hashed, license: encrypt(license), hospital, specialty,
+                    country, medicalCouncil: medicalCouncil || null,
+                    verificationStatus: 'provisional',
+                }
+            })
+        } catch (createErr) {
+            // Guard the race between the existence check and insert
+            if (createErr.code === 'P2002') return res.status(400).json({ error: 'Email already registered' })
+            throw createErr
+        }
         const { Resend } = require('resend')
         const resend = new Resend(process.env.RESEND_API_KEY)
         try {
@@ -84,6 +100,9 @@ router.post('/verify-otp', async (req, res) => {
                 specialty: doctor.specialty,
                 hospital: doctor.hospital,
                 verified: doctor.verified,
+                verificationStatus: doctor.verificationStatus,
+                country: doctor.country,
+                preferredLanguage: doctor.preferredLanguage,
                 isAdmin: doctor.isAdmin,
                 license: decrypt(doctor.license),
             }
@@ -99,7 +118,7 @@ router.get('/me', async (req, res) => {
         const db = await getPrisma()
         const doctor = await db.doctor.findUnique({
             where: { id: decoded.doctorId },
-            select: { id: true, name: true, email: true, specialty: true, hospital: true, verified: true, isAdmin: true, reputation: true, cmeCredits: true }
+            select: { id: true, name: true, email: true, specialty: true, hospital: true, verified: true, verificationStatus: true, country: true, medicalCouncil: true, preferredLanguage: true, isAdmin: true, reputation: true, cmeCredits: true, bio: true, location: true, subSpecialty: true, yearsExperience: true }
         })
         if (!doctor) return res.status(404).json({ error: 'Not found' })
         res.json(doctor)
