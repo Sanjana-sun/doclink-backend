@@ -205,6 +205,70 @@ router.delete('/cases/:id', auth, adminOnly, async (req, res) => {
     }
 })
 
+// ── Honeypot management ──────────────────────────────────────────────────────
+// Decoy cases hidden from every listing; any non-author access trips the
+// tripwire in routes/cases.js. Admins mint and manage them here.
+router.get('/honeypots', auth, adminOnly, async (req, res) => {
+    try {
+        const db = await getPrisma()
+        const honeypots = await db.case.findMany({
+            where: { isHoneypot: true },
+            orderBy: { createdAt: 'desc' },
+            select: {
+                id: true, title: true, tag: true, urgency: true, age: true, sex: true,
+                views: true, createdAt: true,
+                doctor: { select: { name: true } },
+            },
+        })
+        res.json(honeypots)
+    } catch (err) {
+        console.error(err)
+        res.status(500).json({ error: 'Server error' })
+    }
+})
+
+router.post('/honeypots', auth, adminOnly, async (req, res) => {
+    try {
+        const db = await getPrisma()
+        const { title, tag, urgency, age, sex, history, examination, investigations, question } = req.body
+        if (!title || !tag || !urgency || !sex || !history || !question) {
+            return res.status(400).json({ error: 'Required fields missing' })
+        }
+        const ageNum = parseInt(age)
+        if (!Number.isInteger(ageNum) || ageNum < 0 || ageNum > 130) {
+            return res.status(400).json({ error: 'Age must be a whole number between 0 and 130' })
+        }
+        if (!['routine', 'urgent', 'critical'].includes(urgency)) {
+            return res.status(400).json({ error: 'Invalid urgency' })
+        }
+        const honeypot = await db.case.create({
+            data: {
+                title, tag, urgency, age: ageNum, sex,
+                history, examination: examination || '', investigations: investigations || '', question,
+                doctorId: req.doctorId, isHoneypot: true,
+            },
+            select: { id: true, title: true, tag: true, urgency: true, age: true, sex: true, views: true, createdAt: true },
+        })
+        res.status(201).json(honeypot)
+    } catch (err) {
+        console.error(err)
+        res.status(500).json({ error: 'Server error' })
+    }
+})
+
+router.delete('/honeypots/:id', auth, adminOnly, async (req, res) => {
+    try {
+        const db = await getPrisma()
+        const hp = await db.case.findUnique({ where: { id: req.params.id }, select: { id: true, isHoneypot: true } })
+        if (!hp || !hp.isHoneypot) return res.status(404).json({ error: 'Honeypot not found' })
+        await db.case.delete({ where: { id: req.params.id } })
+        res.json({ message: 'Honeypot deleted' })
+    } catch (err) {
+        console.error(err)
+        res.status(500).json({ error: 'Server error' })
+    }
+})
+
 // Behavior logs
 router.get('/behavior-logs', auth, adminOnly, async (req, res) => {
     try {

@@ -2,6 +2,7 @@ const express = require('express')
 const auth = require('../middleware/auth')
 const { createBlock } = require('../services/blockchain')
 const behaviorLog = require('../services/behaviorLog')
+const { raiseFlag, sendAlertEmail } = require('../services/securityAlert')
 
 const router = express.Router()
 
@@ -307,6 +308,50 @@ router.get('/:id', auth, async (req, res) => {
                     console.error('Failed to send honeypot alert email:', emailErr)
                 }
             }
+        }
+
+        // Enumeration / scraping detection: a single account pulling an unusual
+        // number of DISTINCT cases in a short window looks like data exfiltration,
+        // not clinical browsing. Flag for review (access retained) + alert, throttled.
+        try {
+            const HOUR = 60 * 60 * 1000
+            const THRESHOLD = parseInt(process.env.SCRAPE_THRESHOLD || '40', 10)
+            const recentViews = await db.behaviorLog.findMany({
+                where: { doctorId: accessingDoctorId, action: 'CASE_VIEWED', createdAt: { gte: new Date(Date.now() - HOUR) } },
+                select: { entityId: true },
+            })
+            const distinct = new Set(recentViews.map(v => v.entityId))
+            distinct.add(req.params.id) // this view may not be committed yet
+            if (distinct.size >= THRESHOLD) {
+                // Throttle: at most one scraping alert per doctor per 6h.
+                const recentAlert = await db.behaviorLog.findFirst({
+                    where: { doctorId: accessingDoctorId, action: 'SCRAPING_SUSPECTED', createdAt: { gte: new Date(Date.now() - 6 * HOUR) } },
+                    select: { id: true },
+                })
+                behaviorLog.log(accessingDoctorId, 'SCRAPING_SUSPECTED', req.params.id, { distinct: distinct.size, windowHours: 1 }, ip)
+                if (!recentAlert) {
+                    console.warn(`🚨 SCRAPING SUSPECTED: Doctor ${accessingDoctorId} viewed ${distinct.size} distinct cases in 1h`)
+                    await raiseFlag(db, {
+                        doctorId: accessingDoctorId,
+                        reason: `Unusual access volume: ${distinct.size} distinct cases in 1h`,
+                        blockAction: 'SCRAPING_SUSPECTED',
+                        blockData: { count: distinct.size, ip, ts: Date.now() },
+                    })
+                    const who = await db.doctor.findUnique({ where: { id: accessingDoctorId }, select: { name: true, email: true, specialty: true, hospital: true } })
+                    await sendAlertEmail({
+                        subject: '🚨 SCRAPING SUSPECTED — DocLink Security Alert',
+                        heading: 'Unusual Access Volume',
+                        intro: 'A doctor viewed an unusually high number of distinct cases in a short window. This may indicate scraping or data exfiltration.',
+                        rows: [
+                            ['Doctor', who?.name], ['Email', who?.email], ['Specialty', who?.specialty], ['Hospital', who?.hospital],
+                            ['Distinct cases (1h)', distinct.size], ['Threshold', THRESHOLD], ['IP Address', ip || 'unknown'],
+                            ['Time', new Date().toLocaleString('en-US', { timeZone: process.env.ALERT_TIMEZONE || 'UTC', timeZoneName: 'short' })],
+                        ],
+                    })
+                }
+            }
+        } catch (scrapeErr) {
+            console.error('Scraping detection error (non-fatal):', scrapeErr)
         }
 
         res.json(caseData)
