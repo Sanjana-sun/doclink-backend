@@ -20,6 +20,11 @@ model Doctor {
   medicalCouncil            String?
   // Trust tiers: provisional (self-attested) | verified (document-checked) | council_verified (register-confirmed) | rejected
   verificationStatus        String             @default("provisional")
+  // Security review: set when a doctor trips a honeypot / other tripwire. Access
+  // is retained; an admin reviews and clears the flag.
+  flagged                   Boolean            @default(false)
+  flaggedReason             String?
+  flaggedAt                 DateTime?
   preferredLanguage         String             @default("en")
   reputation                Int                @default(0)
   cmeCredits                Float              @default(0)

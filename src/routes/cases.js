@@ -206,8 +206,10 @@ router.get('/', async (req, res) => {
     }
 })
 
-// Get single case — detects honeypot access + logs view
-router.get('/:id', async (req, res) => {
+// Get single case — detects honeypot access + logs view. Auth required: this
+// serves clinical case data, and an authenticated identity is what makes the
+// honeypot tripwire meaningful (anonymous access can no longer slip past it).
+router.get('/:id', auth, async (req, res) => {
     try {
         const db = await getPrisma()
         const caseData = await db.case.findUnique({
@@ -225,46 +227,63 @@ router.get('/:id', async (req, res) => {
         // Increment views
         await db.case.update({ where: { id: req.params.id }, data: { views: { increment: 1 } } })
 
-        // Decode token if present
-        const token = req.headers.authorization?.split(' ')[1]
-        let accessingDoctorId = null
-        if (token) {
-            try {
-                const jwt = require('jsonwebtoken')
-                const decoded = jwt.verify(token, process.env.JWT_SECRET)
-                accessingDoctorId = decoded.doctorId
-            } catch (e) {}
-        }
+        const accessingDoctorId = req.doctorId
+        const ip = req.headers['x-forwarded-for'] || req.ip
 
         // Log case view
-        if (accessingDoctorId) {
-            behaviorLog.log(accessingDoctorId, 'CASE_VIEWED', req.params.id, { title: caseData.title, tag: caseData.tag }, req.headers['x-forwarded-for'] || req.ip)
-        }
+        behaviorLog.log(accessingDoctorId, 'CASE_VIEWED', req.params.id, { title: caseData.title, tag: caseData.tag }, ip)
 
-        // Detect honeypot access
-        if (caseData.isHoneypot && accessingDoctorId && accessingDoctorId !== caseData.doctorId) {
-            console.warn(`🚨 HONEYPOT ACCESS: Doctor ${accessingDoctorId} accessed honeypot case ${req.params.id}`)
-
-            await createBlock(db, {
-                action: 'HONEYPOT_ACCESS',
-                entityType: 'Case',
-                entityId: req.params.id,
-                doctorId: accessingDoctorId,
-                data: { accessingDoctorId, caseId: req.params.id, ip: req.headers['x-forwarded-for'] || req.ip, ts: Date.now() },
+        // Detect honeypot access by anyone other than its author.
+        if (caseData.isHoneypot && accessingDoctorId !== caseData.doctorId) {
+            // Throttle: only alert once per (doctor, honeypot) per 24h so a scrape
+            // loop or an innocent re-open can't produce an email/chain storm.
+            const DAY = 24 * 60 * 60 * 1000
+            const recentTrip = await db.behaviorLog.findFirst({
+                where: {
+                    doctorId: accessingDoctorId,
+                    action: 'HONEYPOT_ACCESSED',
+                    entityId: req.params.id,
+                    createdAt: { gte: new Date(Date.now() - DAY) },
+                },
+                select: { id: true },
             })
 
-            behaviorLog.log(accessingDoctorId, 'HONEYPOT_ACCESSED', req.params.id, { title: caseData.title }, req.headers['x-forwarded-for'] || req.ip)
+            // Always record the access for the audit trail.
+            behaviorLog.log(accessingDoctorId, 'HONEYPOT_ACCESSED', req.params.id, { title: caseData.title }, ip)
 
-            try {
-                const { Resend } = require('resend')
-                const resend = new Resend(process.env.RESEND_API_KEY)
-                const accessingDoctor = await db.doctor.findUnique({
-                    where: { id: accessingDoctorId },
-                    select: { name: true, email: true, specialty: true, hospital: true }
+            if (!recentTrip) {
+                console.warn(`🚨 HONEYPOT ACCESS: Doctor ${accessingDoctorId} accessed honeypot case ${req.params.id}`)
+
+                await createBlock(db, {
+                    action: 'HONEYPOT_ACCESS',
+                    entityType: 'Case',
+                    entityId: req.params.id,
+                    doctorId: accessingDoctorId,
+                    data: { accessingDoctorId, caseId: req.params.id, ip, ts: Date.now() },
                 })
-                await resend.emails.send({
-                    from: 'noreply@doclink.in',
-                    to: process.env.SECURITY_ALERT_EMAIL || 'sanjanainjamuri13@gmail.com',
+
+                // Contain: flag the doctor for admin review (access retained).
+                try {
+                    await db.doctor.update({
+                        where: { id: accessingDoctorId },
+                        data: {
+                            flagged: true,
+                            flaggedReason: `Accessed honeypot case "${caseData.title}"`,
+                            flaggedAt: new Date(),
+                        },
+                    })
+                } catch (flagErr) { console.error('Failed to flag doctor (non-fatal):', flagErr) }
+
+                try {
+                    const { Resend } = require('resend')
+                    const resend = new Resend(process.env.RESEND_API_KEY)
+                    const accessingDoctor = await db.doctor.findUnique({
+                        where: { id: accessingDoctorId },
+                        select: { name: true, email: true, specialty: true, hospital: true }
+                    })
+                    await resend.emails.send({
+                        from: 'noreply@doclink.in',
+                        to: process.env.SECURITY_ALERT_EMAIL || 'noreply@doclink.in',
                     subject: '🚨 HONEYPOT ACCESS DETECTED — DocLink Security Alert',
                     html: `
             <div style="font-family: sans-serif; padding: 2rem; max-width: 560px;">
@@ -283,9 +302,10 @@ router.get('/:id', async (req, res) => {
               <a href="https://www.doclink.in/admin" style="display: inline-block; background: #ef4444; color: white; padding: 0.75rem 1.5rem; border-radius: 8px; text-decoration: none; font-weight: 500;">Review in Admin Panel →</a>
             </div>
           `
-                })
-            } catch (emailErr) {
-                console.error('Failed to send honeypot alert email:', emailErr)
+                    })
+                } catch (emailErr) {
+                    console.error('Failed to send honeypot alert email:', emailErr)
+                }
             }
         }
 

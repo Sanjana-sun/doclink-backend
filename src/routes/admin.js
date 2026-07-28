@@ -33,10 +33,11 @@ const adminOnly = async (req, res, next) => {
 router.get('/stats', auth, adminOnly, async (req, res) => {
     try {
         const db = await getPrisma()
-        const [totalDoctors, verifiedDoctors, pendingDoctors, totalCases, totalResponses, recentDoctors] = await Promise.all([
+        const [totalDoctors, verifiedDoctors, pendingDoctors, flaggedDoctors, totalCases, totalResponses, recentDoctors] = await Promise.all([
             db.doctor.count(),
             db.doctor.count({ where: { verified: true } }),
             db.doctor.count({ where: { verified: false } }),
+            db.doctor.count({ where: { flagged: true } }),
             db.case.count(),
             db.response.count(),
             db.doctor.findMany({
@@ -45,7 +46,7 @@ router.get('/stats', auth, adminOnly, async (req, res) => {
                 select: { id: true, name: true, email: true, specialty: true, hospital: true, verified: true, verificationStatus: true, country: true, medicalCouncil: true, createdAt: true }
             })
         ])
-        res.json({ totalDoctors, verifiedDoctors, pendingDoctors, totalCases, totalResponses, recentDoctors })
+        res.json({ totalDoctors, verifiedDoctors, pendingDoctors, flaggedDoctors, totalCases, totalResponses, recentDoctors })
     } catch (err) {
         console.error(err)
         res.status(500).json({ error: 'Server error' })
@@ -65,6 +66,7 @@ router.get('/doctors', auth, adminOnly, async (req, res) => {
                 country: true, medicalCouncil: true, isAdmin: true,
                 license: true, createdAt: true, reputation: true,
                 cmeCredits: true,
+                flagged: true, flaggedReason: true, flaggedAt: true,
                 _count: { select: { cases: true, responses: true } }
             }
         })
@@ -135,6 +137,24 @@ router.put('/doctors/:id/reject', auth, adminOnly, async (req, res) => {
         const doctor = await db.doctor.update({
             where: { id: req.params.id },
             data: { verified: false, verificationStatus: 'rejected' }
+        })
+        res.json(doctor)
+    } catch (err) {
+        console.error(err)
+        res.status(500).json({ error: 'Server error' })
+    }
+})
+
+// Clear a security flag after an admin has reviewed the honeypot/tripwire hit.
+router.put('/doctors/:id/unflag', auth, adminOnly, async (req, res) => {
+    try {
+        const db = await getPrisma()
+        const exists = await db.doctor.findUnique({ where: { id: req.params.id }, select: { id: true } })
+        if (!exists) return res.status(404).json({ error: 'Doctor not found' })
+        const doctor = await db.doctor.update({
+            where: { id: req.params.id },
+            data: { flagged: false, flaggedReason: null, flaggedAt: null },
+            select: { id: true, flagged: true }
         })
         res.json(doctor)
     } catch (err) {
