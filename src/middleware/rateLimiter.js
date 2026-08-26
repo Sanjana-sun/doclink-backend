@@ -17,13 +17,15 @@ const general = rateLimit({
 
 // Tighter guard on auth (OTP send / login) to blunt brute force, but not so
 // tight that a mistyped code or a shared IP locks legitimate users out.
+// Only the sensitive mutations count — GET reads like /me must NOT consume the
+// login budget, or ordinary session reads lock users out of signing in.
 const auth = rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 30,
     message: { error: 'Too many login attempts, please try again later.' },
     standardHeaders: true,
     legacyHeaders: false,
-    skip: (req) => WHITELIST.includes(req.ip),
+    skip: (req) => WHITELIST.includes(req.ip) || req.method === 'GET',
 })
 
 const api = rateLimit({
